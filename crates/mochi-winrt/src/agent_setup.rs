@@ -75,13 +75,12 @@ pub enum AgentStatus {
 
 pub struct AgentSetup {
     home: PathBuf,
-    cli: PathBuf,
     skill: String,
 }
 
 impl AgentSetup {
-    pub fn new(home: PathBuf, cli: PathBuf, skill: String) -> Self {
-        Self { home, cli, skill }
+    pub fn new(home: PathBuf, skill: String) -> Self {
+        Self { home, skill }
     }
 
     pub fn installed_cli() -> PathBuf {
@@ -106,7 +105,7 @@ impl AgentSetup {
         let home = std::env::var_os("USERPROFILE")
             .map(PathBuf::from)
             .unwrap_or_default();
-        Self::new(home, Self::installed_cli(), EMBEDDED_SKILL.to_string())
+        Self::new(home, EMBEDDED_SKILL.to_string())
     }
 
     pub fn remove_all() {
@@ -118,21 +117,19 @@ impl AgentSetup {
         }
     }
 
-    pub fn upgrade_copilot_if_needed(&self) {
-        if !Self::has_cli() {
-            return;
-        }
+    pub fn upgrade_copilot_if_needed(&self) -> bool {
+        Self::has_cli() && self.upgrade_copilot_file()
+    }
+
+    fn upgrade_copilot_file(&self) -> bool {
         let file = self.copilot_file();
-        let expected = format!(
-            "& '{}' hook copilot",
-            self.cli.to_string_lossy().replace('\'', "''")
-        );
         if let Ok(text) = fs::read_to_string(&file)
             && text.contains("hook copilot")
-            && !text.contains(&expected)
+            && !text.contains("\"mochi-cli hook copilot\"")
         {
-            let _ = self.set("copilot", true);
+            return self.set("copilot", true).is_ok();
         }
+        false
     }
 
     fn copilot_dir(&self) -> PathBuf {
@@ -223,12 +220,11 @@ impl AgentSetup {
     }
 
     pub fn set(&self, agent: &str, on: bool) -> Result<(), String> {
-        let cli_str = self.cli.to_string_lossy().into_owned();
         match agent {
             "copilot" => {
                 let file = self.copilot_file();
                 update_json_obj(&file, |root| {
-                    set_copilot_flat(root, &COPILOT_EVENTS, on, &cli_str);
+                    set_copilot_flat(root, &COPILOT_EVENTS, on);
                 })?;
                 if !on
                     && let Ok(root) = read_json_obj(&file)
@@ -250,7 +246,7 @@ impl AgentSetup {
                 if !root.contains_key("version") {
                     root.insert("version".to_string(), json!(1));
                 }
-                set_flat(root, "cursor", &CURSOR_EVENTS, on, &cli_str);
+                set_flat(root, "cursor", &CURSOR_EVENTS, on);
             })?,
             "codex" => update_json_obj(&self.codex_file(), |root| {
                 set_grouped(root, "codex", &CODEX_EVENTS, on, |timeout| {
@@ -435,13 +431,7 @@ fn set_grouped(
     }
 }
 
-fn set_flat(
-    root: &mut Map<String, Value>,
-    agent: &str,
-    events: &[(&str, u64)],
-    on: bool,
-    cli: &str,
-) {
+fn set_flat(root: &mut Map<String, Value>, agent: &str, events: &[(&str, u64)], on: bool) {
     if let Some(Value::Object(hooks)) = root.get_mut("hooks") {
         let keys: Vec<String> = hooks.keys().cloned().collect();
         for name in keys {
@@ -466,7 +456,7 @@ fn set_flat(
     let Some(hooks_obj) = target.as_object_mut() else {
         return;
     };
-    let command = format!("& '{}' hook cursor", cli.replace('\'', "''"));
+    let command = format!("mochi-cli hook {agent}");
     for &(name, timeout) in events {
         let handlers = hooks_obj
             .entry(name.to_string())
@@ -477,7 +467,7 @@ fn set_flat(
     }
 }
 
-fn set_copilot_flat(root: &mut Map<String, Value>, events: &[(&str, u64)], on: bool, cli: &str) {
+fn set_copilot_flat(root: &mut Map<String, Value>, events: &[(&str, u64)], on: bool) {
     if let Some(Value::Object(hooks)) = root.get_mut("hooks") {
         let keys: Vec<String> = hooks.keys().cloned().collect();
         for name in keys {
@@ -505,7 +495,6 @@ fn set_copilot_flat(root: &mut Map<String, Value>, events: &[(&str, u64)], on: b
     let Some(hooks_obj) = target.as_object_mut() else {
         return;
     };
-    let command = format!("& '{}' hook copilot", cli.replace('\'', "''"));
     for &(name, timeout) in events {
         let handlers = hooks_obj
             .entry(name.to_string())
@@ -513,7 +502,7 @@ fn set_copilot_flat(root: &mut Map<String, Value>, events: &[(&str, u64)], on: b
         if let Some(arr) = handlers.as_array_mut() {
             arr.push(json!({
                 "type": "command",
-                "command": command,
+                "command": "mochi-cli hook copilot",
                 "timeout": timeout,
             }));
         }
@@ -723,11 +712,7 @@ mod tests {
         fs::create_dir_all(dir.join(".cursor")).unwrap();
         fs::create_dir_all(dir.join(".codex")).unwrap();
 
-        let setup = AgentSetup::new(
-            dir.clone(),
-            PathBuf::from(r"C:\Program Files\Mochi\mochi-cli.exe"),
-            EMBEDDED_SKILL.to_string(),
-        );
+        let setup = AgentSetup::new(dir.clone(), EMBEDDED_SKILL.to_string());
         assert_eq!(setup.status("copilot"), AgentStatus::Off);
         assert_eq!(setup.status("claude"), AgentStatus::Off);
         assert_eq!(setup.status("cursor"), AgentStatus::Off);
@@ -740,6 +725,13 @@ mod tests {
         let claude_json = fs::read_to_string(dir.join(".claude").join("settings.json")).unwrap();
         assert!(claude_json.contains("\"command\": \"mochi-cli hook claude\""));
         assert!(!claude_json.contains("\"args\""));
+        let cursor_json = fs::read_to_string(dir.join(".cursor").join("hooks.json")).unwrap();
+        assert!(cursor_json.contains("\"command\": \"mochi-cli hook cursor\""));
+        assert!(!cursor_json.contains("& '"));
+        let copilot_json =
+            fs::read_to_string(dir.join(".copilot").join("hooks").join("mochi.json")).unwrap();
+        assert!(copilot_json.contains("\"command\": \"mochi-cli hook copilot\""));
+        assert!(!copilot_json.contains("& '"));
         assert_eq!(setup.status("copilot"), AgentStatus::On);
         assert_eq!(setup.status("claude"), AgentStatus::On);
         assert_eq!(setup.status("cursor"), AgentStatus::On);
@@ -795,6 +787,28 @@ mod tests {
                 .join("SKILL.md")
                 .exists()
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn upgrade_copilot_migrates_legacy_powershell_command() {
+        let dir = std::env::temp_dir().join(format!("mochi-agent-upg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let hooks_dir = dir.join(".copilot").join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        fs::write(
+            hooks_dir.join("mochi.json"),
+            r#"{"hooks":{"SessionStart":[{"type":"command","command":"& 'C:\\Program Files\\Mochi\\mochi-cli.exe' hook copilot","timeout":5}]}}"#,
+        )
+        .unwrap();
+
+        let setup = AgentSetup::new(dir.clone(), EMBEDDED_SKILL.to_string());
+        assert_eq!(setup.status("copilot"), AgentStatus::On);
+        assert!(setup.upgrade_copilot_file());
+        let updated = fs::read_to_string(hooks_dir.join("mochi.json")).unwrap();
+        assert!(updated.contains("\"command\": \"mochi-cli hook copilot\""));
+        assert!(!updated.contains("& '"));
+        assert!(!setup.upgrade_copilot_file());
         let _ = fs::remove_dir_all(&dir);
     }
 }

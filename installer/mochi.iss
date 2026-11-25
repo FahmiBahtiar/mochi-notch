@@ -147,7 +147,7 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then
+  if (CurStep = ssPostInstall) and (not IsUpdate) then
     SetUserPath(WizardIsTaskSelected('addtopath'));
 end;
 

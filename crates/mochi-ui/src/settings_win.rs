@@ -1018,7 +1018,7 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 if cur != AgentStatus::OnByPlugin {
                     let next = cur != AgentStatus::On;
                     if setup.set(agent, next).is_ok()
-                        && matches!(agent, "codex" | "claude")
+                        && matches!(agent, "codex" | "claude" | "cursor" | "copilot")
                         && next
                         && AgentSetup::has_cli()
                     {
