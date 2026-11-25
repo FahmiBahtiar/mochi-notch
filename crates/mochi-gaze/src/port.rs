@@ -62,10 +62,6 @@ impl EyeGazeController {
         (self.next_f64() * (max as f64)) as usize % max
     }
 
-    pub fn is_blinking(&self) -> bool {
-        self.blink_elapsed >= 0.0
-    }
-
     pub fn is_animating(&self, sleeping: bool, reduced_motion: bool) -> bool {
         if reduced_motion {
             return false;

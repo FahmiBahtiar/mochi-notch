@@ -393,7 +393,7 @@ fn default_kemenag() -> String {
     "Kemenag".to_string()
 }
 
-pub fn normalize_store_data(data: &mut StoreData) {
+fn normalize_store_data(data: &mut StoreData) {
     if data.schema_version < 1 {
         data.schema_version = 1;
     }

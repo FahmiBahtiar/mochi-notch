@@ -78,7 +78,7 @@ impl FocusController {
         settings.sessions_per_cycle.max(1)
     }
 
-    pub fn phase_length(&self, settings: &SettingsData) -> Duration {
+    fn phase_length(&self, settings: &SettingsData) -> Duration {
         let mins = match self.phase {
             FocusPhase::ShortBreak => settings.short_break_minutes,
             FocusPhase::LongBreak => settings.long_break_minutes,

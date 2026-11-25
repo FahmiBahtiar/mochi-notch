@@ -66,7 +66,7 @@ pub fn parse_dt(s: &str) -> Option<NaiveDateTime> {
         .ok()
 }
 
-pub fn weather_icon_name(code: i64, is_day: bool) -> &'static str {
+fn weather_icon_name(code: i64, is_day: bool) -> &'static str {
     match code {
         0 | 1 => {
             if is_day {

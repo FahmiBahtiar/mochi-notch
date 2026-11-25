@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use mochi_winrt::mochi_shelf::port::{
-    MAX_SHELF_ITEMS, MAX_THUMB_BYTES, is_image_extension, shelf_display_name,
+    MAX_SHELF_ITEMS, MAX_THUMB_BYTES, dedup_shelf_paths, is_image_extension, shelf_display_name,
 };
 use mochi_winrt::native::{IconBitmap, load_shell_icon};
 use mochi_winrt::paths::TaskData;
@@ -213,19 +213,13 @@ impl NotchApp {
         factories: Option<&D2dFactories>,
     ) -> Vec<ShelfEntry> {
         let mut out = Vec::new();
-        for p in paths {
-            if out
-                .iter()
-                .any(|x: &ShelfEntry| x.path.eq_ignore_ascii_case(p))
-            {
-                continue;
-            }
-            let path = std::path::Path::new(p);
+        for p in dedup_shelf_paths(&[], paths) {
+            let path = std::path::Path::new(&p);
             if !path.exists() {
                 continue;
             }
-            let name = shelf_display_name(p);
-            let decoded = if is_image_extension(p)
+            let name = shelf_display_name(&p);
+            let decoded = if is_image_extension(&p)
                 && let Some(f) = factories
                 && std::fs::metadata(path).is_ok_and(|m| m.len() <= MAX_THUMB_BYTES)
                 && let Ok(bytes) = std::fs::read(path)
@@ -235,12 +229,12 @@ impl NotchApp {
                 None
             };
             let icon = if decoded.is_none() {
-                load_shell_icon(p, false)
+                load_shell_icon(&p, false)
             } else {
                 None
             };
             out.push(ShelfEntry {
-                path: p.clone(),
+                path: p,
                 name,
                 available: true,
                 icon,

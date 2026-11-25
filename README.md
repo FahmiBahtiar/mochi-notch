@@ -172,7 +172,7 @@ Measured on Windows 11 (8 logical cores) using the size-optimized release LTO bu
 
 ### Windows Installer (Recommended)
 
-Download and run **`Mochi-Setup-0.1.0.exe`** (or `Mochi-Setup.exe`):
+Download and run **`Mochi-Setup.exe`** (or the versioned **`Mochi-Setup-<version>.exe`** from [Releases](https://github.com/FahmiBahtiar/mochi-notch/releases/latest)):
 
 - **Per-user install** into `%LOCALAPPDATA%\Programs\Mochi` — **no administrator rights required**.
 - Optional tasks during setup: **Start Mochi with Windows**, **Create desktop shortcut**, and **Add `mochi-cli` to user `PATH`**.
@@ -236,7 +236,7 @@ flowchart TB
 .
 ├── apps/
 │   ├── mochi-desktop/        # Desktop notch overlay binary (Mochi.exe)
-│   └── mochi-cli/            # CLI & AI agent hook client (mochi-cli.exe) + 317 trycmd tests
+│   └── mochi-cli/            # CLI & AI agent hook client (mochi-cli.exe) + 35 trycmd tests
 ├── crates/
 │   ├── mochi-activities/     # Activity request parsing & AI agent hook translation
 │   ├── mochi-calendar/       # Google Calendar parsing, SafeLinks unwrap & reminders
@@ -281,7 +281,7 @@ flowchart TB
 ### Quality Gate & Release Build
 
 ```powershell
-# Format, lint, and run all unit, Direct2D offscreen, and 317 CLI trycmd tests
+# Format, lint, and run all unit, Direct2D offscreen, and 35 CLI trycmd tests
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets

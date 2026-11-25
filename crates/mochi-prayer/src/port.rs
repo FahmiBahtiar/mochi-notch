@@ -145,7 +145,7 @@ fn hours_to_dt(date: NaiveDate, hours: f64) -> NaiveDateTime {
     base + Duration::seconds(total_secs)
 }
 
-pub fn compute_day_times(
+fn compute_day_times(
     date: NaiveDate,
     lat: f64,
     lon: f64,
@@ -196,7 +196,7 @@ pub fn compute_day_times(
     )
 }
 
-pub fn hijri_date_string(date: NaiveDate) -> String {
+fn hijri_date_string(date: NaiveDate) -> String {
     let jd = (julian_day(date) + 0.5).floor() as i64;
     let l = jd - 1948440 + 10632;
     let n = (l - 1) / 10631;
