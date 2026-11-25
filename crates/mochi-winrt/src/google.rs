@@ -2,8 +2,8 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::Engine;
@@ -220,7 +220,7 @@ impl GoogleAuth {
 
         let verifier = new_pkce_verifier();
         let state = new_pkce_verifier();
-        let challenge = mochi_calendar::port::pkce_challenge(verifier.clone())?;
+        let challenge = mochi_calendar::port::pkce_challenge(&verifier);
         let mut scopes = vec!["openid", "email"];
         scopes.extend_from_slice(wanted);
         let scope_str = scopes.join(" ");
@@ -261,11 +261,7 @@ impl GoogleAuth {
         let email = doc
             .get("id_token")
             .and_then(Value::as_str)
-            .and_then(|t| {
-                mochi_calendar::port::email_from_id_token(Some(t.to_string()))
-                    .ok()
-                    .flatten()
-            })
+            .and_then(|t| mochi_calendar::port::email_from_id_token(Some(t)))
             .unwrap_or_default();
 
         self.credential = Some(GoogleCredential {
@@ -278,8 +274,7 @@ impl GoogleAuth {
         if let Some(cred) = &self.credential {
             SecretFile::write(&AppPaths::google_file(), cred);
         }
-        let req_vec: Vec<String> = wanted.iter().map(|s| (*s).to_string()).collect();
-        Ok(mochi_calendar::port::has_o_auth_scopes(granted.to_string(), req_vec).unwrap_or(false))
+        Ok(mochi_calendar::port::has_o_auth_scopes(granted, wanted))
     }
 
     pub fn sign_in(
@@ -293,21 +288,30 @@ impl GoogleAuth {
         self.finish_oauth(doc, wanted, lang)
     }
 
-    pub fn sign_out(&mut self) {
-        if let Some(cred) = self.credential.take() {
-            let form = format!("token={}", url_encode(&cred.refresh_token));
-            let _ = http_request(
-                "POST",
-                "https://oauth2.googleapis.com/revoke",
-                &[("Content-Type", "application/x-www-form-urlencoded")],
-                Some(form.as_bytes()),
-                10_000,
-            );
-        }
+    pub fn sign_out_local(&mut self) -> Option<String> {
+        let token = self.credential.take().map(|c| c.refresh_token);
         self.access_token = None;
         self.access_expires_utc = None;
         self.needs_reconnect = false;
         SecretFile::delete(&AppPaths::google_file());
+        token
+    }
+
+    pub fn revoke_refresh_token(token: &str) {
+        let form = format!("token={}", url_encode(token));
+        let _ = http_request(
+            "POST",
+            "https://oauth2.googleapis.com/revoke",
+            &[("Content-Type", "application/x-www-form-urlencoded")],
+            Some(form.as_bytes()),
+            10_000,
+        );
+    }
+
+    pub fn sign_out(&mut self) {
+        if let Some(token) = self.sign_out_local() {
+            Self::revoke_refresh_token(&token);
+        }
     }
 
     fn set_access_token(&mut self, doc: &Value) {
@@ -322,23 +326,35 @@ impl GoogleAuth {
         self.access_expires_utc = Some(Utc::now() + chrono::Duration::seconds((secs - 60).max(60)));
     }
 
-    pub fn get_access_token(&mut self, force_refresh: bool) -> Result<String, String> {
-        if !force_refresh
-            && let (Some(tok), Some(exp)) = (&self.access_token, self.access_expires_utc)
-            && Utc::now() < exp
-        {
-            return Ok(tok.clone());
-        }
-        let client = self.client.as_ref().ok_or("No Google client")?;
-        let cred = self.credential.as_ref().ok_or("Not connected")?;
-        if self.needs_reconnect {
-            return Err("Needs reconnect".to_string());
-        }
+    pub fn get_access_token_shared(
+        auth: &Mutex<Self>,
+        force_refresh: bool,
+    ) -> Result<String, String> {
+        let (client_id, client_secret, refresh_token) = {
+            let guard = auth.lock().map_err(|_| "lock".to_string())?;
+            if !force_refresh
+                && let (Some(tok), Some(exp)) = (&guard.access_token, guard.access_expires_utc)
+                && Utc::now() < exp
+            {
+                return Ok(tok.clone());
+            }
+            let client = guard.client.as_ref().ok_or("No Google client")?;
+            let cred = guard.credential.as_ref().ok_or("Not connected")?;
+            if guard.needs_reconnect {
+                return Err("Needs reconnect".to_string());
+            }
+            (
+                client.id.clone(),
+                client.secret.clone(),
+                cred.refresh_token.clone(),
+            )
+        };
+
         let form = format!(
             "client_id={}&client_secret={}&refresh_token={}&grant_type=refresh_token",
-            url_encode(&client.id),
-            url_encode(&client.secret),
-            url_encode(&cred.refresh_token),
+            url_encode(&client_id),
+            url_encode(&client_secret),
+            url_encode(&refresh_token),
         );
         let resp = http_request(
             "POST",
@@ -348,30 +364,32 @@ impl GoogleAuth {
             20_000,
         )?;
         let doc: Value = serde_json::from_str(&resp.body).map_err(|e| e.to_string())?;
+        let mut guard = auth.lock().map_err(|_| "lock".to_string())?;
         if !(200..300).contains(&resp.status) {
             let err = doc.get("error").and_then(Value::as_str).unwrap_or("");
             if err == "invalid_grant" {
-                self.needs_reconnect = true;
-                self.access_token = None;
+                guard.needs_reconnect = true;
+                guard.access_token = None;
             }
             return Err(err.to_string());
         }
-        self.set_access_token(&doc);
-        self.access_token
+        guard.set_access_token(&doc);
+        guard
+            .access_token
             .clone()
             .ok_or_else(|| "Missing access_token".to_string())
     }
 
-    pub fn send_api(
-        &mut self,
+    pub fn send_api_shared(
+        auth: &Mutex<Self>,
         method: &str,
         url: &str,
         json_body: Option<&str>,
     ) -> Result<HttpResponse, String> {
         for attempt in 0..2 {
-            let token = self.get_access_token(attempt > 0)?;
-            let auth = format!("Bearer {token}");
-            let mut headers = vec![("Authorization", auth.as_str())];
+            let token = Self::get_access_token_shared(auth, attempt > 0)?;
+            let auth_hdr = format!("Bearer {token}");
+            let mut headers = vec![("Authorization", auth_hdr.as_str())];
             if json_body.is_some() {
                 headers.push(("Content-Type", "application/json"));
             }
@@ -436,16 +454,14 @@ fn wait_for_oauth_code(
                 }
                 let parts: Vec<&str> = req_line.split_whitespace().collect();
                 let query = if parts.len() >= 2 && parts[0] == "GET" {
-                    mochi_calendar::port::parse_o_auth_redirect(parts[1].to_string())
-                        .ok()
-                        .flatten()
+                    mochi_calendar::port::parse_o_auth_redirect(parts[1])
                 } else {
                     None
                 };
                 let got_state = query
                     .as_ref()
                     .and_then(|q| q.get("state"))
-                    .and_then(Value::as_str);
+                    .map(String::as_str);
                 if got_state != Some(state) {
                     let _ = write_http_response(&mut stream, "404 Not Found", "");
                     continue;
@@ -453,7 +469,7 @@ fn wait_for_oauth_code(
                 if let Some(code) = query
                     .as_ref()
                     .and_then(|q| q.get("code"))
-                    .and_then(Value::as_str)
+                    .map(String::as_str)
                     .filter(|s| !s.is_empty())
                 {
                     let html = result_page(

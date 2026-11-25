@@ -19,7 +19,7 @@ use windows_core::PCWSTR;
 use crate::native::to_wide;
 use crate::paths::{AppPaths, SettingsData, atomic_write};
 
-pub const EMBEDDED_SKILL: &str = include_str!("../resources/SKILL.md");
+pub const EMBEDDED_SKILL: &str = mochi_activities::SKILL_MD;
 
 const SKILL_NAME: &str = "mochi-notch";
 const AGENTS: [&str; 4] = ["copilot", "claude", "cursor", "codex"];
@@ -241,8 +241,7 @@ impl AgentSetup {
                 set_grouped(root, "claude", &CLAUDE_EVENTS, on, |timeout| {
                     json!({
                         "type": "command",
-                        "command": cli_str,
-                        "args": ["hook", "claude"],
+                        "command": "mochi-cli hook claude",
                         "timeout": timeout,
                     })
                 });
@@ -738,6 +737,9 @@ mod tests {
         setup.set("claude", true).unwrap();
         setup.set("cursor", true).unwrap();
         setup.set("codex", true).unwrap();
+        let claude_json = fs::read_to_string(dir.join(".claude").join("settings.json")).unwrap();
+        assert!(claude_json.contains("\"command\": \"mochi-cli hook claude\""));
+        assert!(!claude_json.contains("\"args\""));
         assert_eq!(setup.status("copilot"), AgentStatus::On);
         assert_eq!(setup.status("claude"), AgentStatus::On);
         assert_eq!(setup.status("cursor"), AgentStatus::On);

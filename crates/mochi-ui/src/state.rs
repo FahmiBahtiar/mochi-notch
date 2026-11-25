@@ -1,11 +1,10 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
-use serde_json::Value;
 
 use mochi_winrt::audio::AudioService;
 use mochi_winrt::calendar::{CalendarEvent, CalendarInfo};
@@ -16,6 +15,7 @@ use mochi_winrt::media::{MediaService, MediaState};
 use mochi_winrt::mochi_prayer::port::PrayerSchedule;
 pub use mochi_winrt::mochi_presence::port::{AwayItem, AwayReport};
 use mochi_winrt::mochi_spring;
+pub use mochi_winrt::mochi_spring::port::Spring;
 use mochi_winrt::native::{get_cursor_pos, get_idle_ms};
 use mochi_winrt::notifications::NotificationAccess;
 use mochi_winrt::paths::{AppStore, Glyphs, HudMessage, Log};
@@ -28,16 +28,18 @@ use crate::d2d::{D2dFactories, FontKind};
 pub use crate::features::activities::state::{Activity, BubbleItem};
 pub use crate::features::agenda::state::AgendaRow;
 pub use crate::features::clipboard::state::{ClipboardItem, ClipboardKind};
-pub use crate::features::companion::state::{GazeState, RavenAnimator, RavenMode};
-pub use crate::features::focus::state::{FocusController, FocusPhase, FocusState};
+pub use crate::features::companion::state::{CompanionAnimator, CompanionMode, GazeState};
+pub use crate::features::focus::state::{
+    FocusController, FocusPhase, FocusState, focus_notice_to_hud,
+};
 pub use crate::features::hud::state::HudQueue;
-pub use crate::features::notifications::state::NotificationItem;
+pub use crate::features::notifications::state::{NotificationCenter, NotificationItem};
 pub use crate::features::shelf::state::{ShelfEntry, UndoKind, UndoState};
 use crate::theme::{Color, DEFAULT_ACCENT, DecodedFrame};
 
 pub const EAR: f64 = 8.0;
 pub const COMPACT_IDLE: (f64, f64) = (120.0, 30.0);
-pub const COMPACT_IDLE_WITH_RAVEN: (f64, f64) = (126.0, 30.0);
+pub const COMPACT_IDLE_WITH_COMPANION: (f64, f64) = (126.0, 30.0);
 pub const COMPACT_IDLE_TIMER: (f64, f64) = (160.0, 30.0);
 pub const COMPACT_IDLE_WEATHER: (f64, f64) = (180.0, 30.0);
 pub const COMPACT_MEDIA: (f64, f64) = (260.0, 32.0);
@@ -74,56 +76,6 @@ pub enum NotchPage {
     Notifications = 7,
     Clipboard = 8,
     Weather = 9,
-}
-
-#[derive(Debug, Clone)]
-pub struct Spring {
-    pub value: f64,
-    pub target: f64,
-    pub velocity: f64,
-    pub stiffness: f64,
-    pub damping_ratio: f64,
-    pub epsilon: f64,
-}
-
-impl Spring {
-    pub fn new(initial: f64, epsilon: f64) -> Self {
-        Self {
-            value: initial,
-            target: initial,
-            velocity: 0.0,
-            stiffness: 400.0,
-            damping_ratio: 1.0,
-            epsilon,
-        }
-    }
-
-    pub fn step(&mut self, dt: f64) -> bool {
-        if let Ok(res) = mochi_spring::port::step_spring(
-            self.value,
-            self.velocity,
-            self.target,
-            self.stiffness,
-            self.damping_ratio,
-            self.epsilon,
-            dt,
-        ) {
-            self.value = res
-                .get("Value")
-                .and_then(Value::as_f64)
-                .unwrap_or(self.target);
-            self.velocity = res.get("Velocity").and_then(Value::as_f64).unwrap_or(0.0);
-            res.get("Moving").and_then(Value::as_bool).unwrap_or(false)
-        } else {
-            self.snap();
-            false
-        }
-    }
-
-    pub fn snap(&mut self) {
-        self.value = self.target;
-        self.velocity = 0.0;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +254,16 @@ pub enum HoverTarget {
     PrayClosePicker,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnlineSyncConfig {
+    pub lang: Language,
+    pub calendar_ids: Option<Vec<String>>,
+    pub tasks_sync_enabled: bool,
+    pub tasks_list_id: Option<String>,
+    pub weather_coords: Option<(f64, f64)>,
+    pub update_check_enabled: bool,
+}
+
 pub struct NotchApp {
     pub store: AppStore,
     pub lang: Language,
@@ -412,14 +374,14 @@ pub struct NotchApp {
     pub zzz_accum: f64,
 
     // Companion animators
-    pub music_raven: RavenAnimator,
-    pub news_raven: RavenAnimator,
-    pub hud_raven: RavenAnimator,
-    pub hud_raven_land_at: Option<Instant>,
-    pub clock_raven: RavenAnimator,
-    pub idle_raven: RavenAnimator,
-    pub drop_raven: RavenAnimator,
-    pub header_cozmo: RavenAnimator,
+    pub music_companion: CompanionAnimator,
+    pub news_companion: CompanionAnimator,
+    pub hud_companion: CompanionAnimator,
+    pub hud_companion_land_at: Option<Instant>,
+    pub clock_companion: CompanionAnimator,
+    pub idle_companion: CompanionAnimator,
+    pub drop_companion: CompanionAnimator,
+    pub header_cozmo: CompanionAnimator,
 
     // Presence
     pub presence_state: u8, // 0 Active, 1 Idle, 2 Asleep
@@ -447,10 +409,8 @@ pub struct NotchApp {
     pub copilot_hooks_on: bool,
 
     // Notification Center
-    pub notifications: Vec<NotificationItem>,
+    pub notifications: NotificationCenter,
     pub notifications_scroll: f64,
-    pub next_notif_id: u64,
-    pub seen_win_notif_ids: HashSet<u32>,
     pub win_notif_access: NotificationAccess,
     pub notif_pulse_t: f64,
 
@@ -524,6 +484,7 @@ pub struct NotchApp {
     pub audio_service: Option<AudioService>,
     pub lyrics_service: Arc<LyricsService>,
     pub stop_flag: Arc<AtomicBool>,
+    pub online_sync: Arc<(Mutex<OnlineSyncConfig>, Condvar)>,
 
     // UI interaction state
     pub hover: HoverTarget,
@@ -538,6 +499,7 @@ pub struct NotchApp {
     pub dirty: bool,
     pub store_dirty_at: Option<Instant>,
     pub last_os_poll: Instant,
+    pub last_gaze_idle_at: Instant,
     pub last_clock_sec: u32,
 
     // Bench & Shots
@@ -573,6 +535,22 @@ impl NotchApp {
             false
         } else {
             is_motion_reduced()
+        };
+        let initial_online_cfg = OnlineSyncConfig {
+            lang,
+            calendar_ids: store.data.settings.calendar_ids.clone(),
+            tasks_sync_enabled: store.data.settings.tasks_sync_enabled,
+            tasks_list_id: store.data.settings.tasks_list_id.clone(),
+            weather_coords: if store.data.settings.weather_enabled {
+                store
+                    .data
+                    .settings
+                    .weather_latitude
+                    .zip(store.data.settings.weather_longitude)
+            } else {
+                None
+            },
+            update_check_enabled: store.data.settings.update_check_enabled,
         };
 
         let mut app = Self {
@@ -694,14 +672,14 @@ impl NotchApp {
             zzz_step: 0,
             zzz_accum: 0.0,
 
-            music_raven: RavenAnimator::default(),
-            news_raven: RavenAnimator::default(),
-            hud_raven: RavenAnimator::default(),
-            hud_raven_land_at: None,
-            clock_raven: RavenAnimator::default(),
-            idle_raven: RavenAnimator::default(),
-            drop_raven: RavenAnimator::default(),
-            header_cozmo: RavenAnimator::default(),
+            music_companion: CompanionAnimator::default(),
+            news_companion: CompanionAnimator::default(),
+            hud_companion: CompanionAnimator::default(),
+            hud_companion_land_at: None,
+            clock_companion: CompanionAnimator::default(),
+            idle_companion: CompanionAnimator::default(),
+            drop_companion: CompanionAnimator::default(),
+            header_cozmo: CompanionAnimator::default(),
 
             presence_state: 0,
             is_away: false,
@@ -725,10 +703,8 @@ impl NotchApp {
             agent_prompt_focused: false,
             copilot_hooks_on: false,
 
-            notifications: Vec::new(),
+            notifications: NotificationCenter::new(),
             notifications_scroll: 0.0,
-            next_notif_id: 1,
-            seen_win_notif_ids: HashSet::new(),
             win_notif_access: NotificationAccess::Unspecified,
             notif_pulse_t: 0.0,
 
@@ -800,6 +776,7 @@ impl NotchApp {
             audio_service: None,
             lyrics_service: Arc::new(LyricsService::new()),
             stop_flag: Arc::new(AtomicBool::new(false)),
+            online_sync: Arc::new((Mutex::new(initial_online_cfg), Condvar::new())),
 
             hover: HoverTarget::None,
             pressed: HoverTarget::None,
@@ -813,6 +790,7 @@ impl NotchApp {
             dirty: true,
             store_dirty_at: None,
             last_os_poll: Instant::now(),
+            last_gaze_idle_at: Instant::now(),
             last_clock_sec: now_local.second(),
 
             bench,
@@ -917,7 +895,7 @@ impl NotchApp {
         if expanded {
             self.interrupt_hud();
             self.hide_news(factories);
-            self.clock_raven.stop();
+            self.clock_companion.stop();
             self.header_cozmo.perch();
             self.sync_tab_dock_targets(factories);
             self.compact_marquee_active = false;
@@ -1089,7 +1067,7 @@ impl NotchApp {
         let has_weather = self.weather_report.is_some();
         let compact_weather =
             has_weather && !has_media && !self.focus.is_active() && self.upcoming_text.is_none();
-        let show_clock_raven = self.clock_raven.mode != RavenMode::Still
+        let show_clock_companion = self.clock_companion.mode != CompanionMode::Still
             && !has_media
             && !self.focus.is_active()
             && self.upcoming_text.is_none();
@@ -1104,8 +1082,8 @@ impl NotchApp {
             COMPACT_IDLE_TIMER
         } else if compact_weather {
             COMPACT_IDLE_WEATHER
-        } else if show_clock_raven {
-            COMPACT_IDLE_WITH_RAVEN
+        } else if show_clock_companion {
+            COMPACT_IDLE_WITH_COMPANION
         } else {
             COMPACT_IDLE
         };
@@ -1165,27 +1143,17 @@ impl NotchApp {
             compact
         };
 
-        if let Ok(motion) =
-            mochi_spring::port::shape_motion(self.expanded, self.store.data.settings.calm_motion)
-        {
-            let stiff = motion
-                .get("Stiffness")
-                .and_then(Value::as_f64)
-                .unwrap_or(400.0);
-            let damp = motion
-                .get("DampingRatio")
-                .and_then(Value::as_f64)
-                .unwrap_or(1.0);
-            for s in [
-                &mut self.width,
-                &mut self.height,
-                &mut self.radius,
-                &mut self.expand,
-                &mut self.ambient,
-            ] {
-                s.stiffness = stiff;
-                s.damping_ratio = damp;
-            }
+        let motion =
+            mochi_spring::port::shape_motion(self.expanded, self.store.data.settings.calm_motion);
+        for s in [
+            &mut self.width,
+            &mut self.height,
+            &mut self.radius,
+            &mut self.expand,
+            &mut self.ambient,
+        ] {
+            s.stiffness = motion.stiffness;
+            s.damping_ratio = motion.damping_ratio;
         }
 
         self.width.target = target.0;
@@ -1209,9 +1177,9 @@ impl NotchApp {
         };
 
         if self.expanded && self.page == NotchPage::Media && self.media_state.is_none() {
-            self.idle_raven.perch();
+            self.idle_companion.perch();
         } else {
-            self.idle_raven.stop();
+            self.idle_companion.stop();
         }
 
         self.fit_window(false);
@@ -1401,7 +1369,7 @@ impl NotchApp {
         if self.news_active && self.news_flight_t < 1.0 {
             self.news_flight_t = (self.news_flight_t + dt / 0.75).min(1.0);
             if self.news_flight_t >= 1.0 {
-                self.news_raven.land();
+                self.news_companion.land();
             }
             moving = true;
         }
@@ -1462,7 +1430,7 @@ impl NotchApp {
         let eq_running = self.media_state.as_ref().is_some_and(|m| m.is_playing)
             && self.is_visible()
             && !self.expanded
-            && self.music_raven.mode == RavenMode::Still
+            && self.music_companion.mode == CompanionMode::Still
             && !self.reduce_motion;
         if eq_running {
             const ENV: [f64; 5] = [0.68, 0.94, 0.86, 1.0, 0.72];
@@ -1499,12 +1467,13 @@ impl NotchApp {
         }
 
         // Companion animators
-        let track_cursor = self.bench.is_none()
+        let track_cursor = !cfg!(test)
+            && self.bench.is_none()
             && self.shots_dir.is_none()
             && (self.ambient_shown
                 || self.expanded
-                || self.clock_raven.mode != RavenMode::Still
-                || self.idle_raven.mode != RavenMode::Still);
+                || self.clock_companion.mode != CompanionMode::Still
+                || self.idle_companion.mode != CompanionMode::Still);
         let (cursor_px, cursor_off) = if track_cursor {
             let px = get_cursor_pos().map(|(x, y)| (f64::from(x), f64::from(y)));
             let scale = self.window_scale.max(0.5);
@@ -1550,17 +1519,19 @@ impl NotchApp {
         } else {
             None
         };
-        if self.music_raven.tick(dt, self.reduce_motion, None, None)
-            | self.news_raven.tick(dt, self.reduce_motion, None, None)
-            | self.hud_raven.tick(dt, self.reduce_motion, None, None)
+        if self
+            .music_companion
+            .tick(dt, self.reduce_motion, None, None)
+            | self.news_companion.tick(dt, self.reduce_motion, None, None)
+            | self.hud_companion.tick(dt, self.reduce_motion, None, None)
             | self
-                .clock_raven
+                .clock_companion
                 .tick(dt, self.reduce_motion, cursor_px, cursor_off)
             | self
-                .idle_raven
+                .idle_companion
                 .tick(dt, self.reduce_motion, cursor_px, cursor_off)
             | self
-                .drop_raven
+                .drop_companion
                 .tick(dt, self.reduce_motion, cursor_px, drop_cursor_off)
             | self
                 .header_cozmo
@@ -1569,11 +1540,11 @@ impl NotchApp {
             self.dirty = true;
         }
 
-        if let Some(land_at) = self.hud_raven_land_at
+        if let Some(land_at) = self.hud_companion_land_at
             && Instant::now() >= land_at
         {
-            self.hud_raven_land_at = None;
-            self.hud_raven.land();
+            self.hud_companion_land_at = None;
+            self.hud_companion.land();
             self.dirty = true;
         }
 
@@ -1615,8 +1586,66 @@ impl NotchApp {
         if moving {
             self.dirty = true;
         }
+        self.last_gaze_idle_at = Instant::now();
         let _ = factories;
         moving
+    }
+
+    pub fn poll_idle_gaze(&mut self, cursor_px: Option<(f64, f64)>) -> bool {
+        let now = Instant::now();
+        let dt = now.duration_since(self.last_gaze_idle_at).as_secs_f64();
+        self.last_gaze_idle_at = now;
+        if self.reduce_motion
+            || !self.is_visible()
+            || self.bench.is_some()
+            || self.shots_dir.is_some()
+        {
+            return false;
+        }
+        let mut woke = false;
+        if self.ambient_shown
+            && !self.expanded
+            && !self.visor_sleeping
+            && !self.visor_gaze.is_animating(false, self.reduce_motion)
+        {
+            woke |= self.visor_gaze.advance_idle(dt, cursor_px);
+        }
+        if !self.expanded
+            && self.clock_companion.mode == CompanionMode::Perched
+            && !self.clock_companion.is_animating(self.reduce_motion)
+        {
+            woke |= self.clock_companion.advance_idle(dt, cursor_px);
+        }
+        if self.expanded
+            && self.idle_companion.mode == CompanionMode::Perched
+            && !self.idle_companion.is_animating(self.reduce_motion)
+        {
+            woke |= self.idle_companion.advance_idle(dt, cursor_px);
+        }
+        if self.expanded
+            && self.header_cozmo.mode == CompanionMode::Perched
+            && !self.header_cozmo.is_animating(self.reduce_motion)
+        {
+            woke |= self.header_cozmo.advance_idle(dt, cursor_px);
+        }
+        if self.drop_companion.mode == CompanionMode::Perched
+            && !self.drop_companion.is_animating(self.reduce_motion)
+        {
+            woke |= self.drop_companion.advance_idle(dt, cursor_px);
+        }
+        if self.hud_active
+            && self.hud_companion.mode == CompanionMode::Perched
+            && !self.hud_companion.is_animating(self.reduce_motion)
+        {
+            woke |= self.hud_companion.advance_idle(dt, None);
+        }
+        if self.news_active
+            && self.news_companion.mode == CompanionMode::Perched
+            && !self.news_companion.is_animating(self.reduce_motion)
+        {
+            woke |= self.news_companion.advance_idle(dt, None);
+        }
+        woke
     }
 
     pub fn needs_continuous_frames(&self) -> bool {
@@ -1654,14 +1683,17 @@ impl NotchApp {
                     .equalizer_bars
                     .iter()
                     .any(|&b| (b - 0.18).abs() > 0.004))
-            || (self.ambient_shown && !self.expanded && !self.visor_sleeping)
-            || self.clock_raven.mode != RavenMode::Still
-            || self.idle_raven.mode != RavenMode::Still
-            || self.drop_raven.mode != RavenMode::Still
-            || (self.expanded && self.header_cozmo.mode != RavenMode::Still)
-            || self.hud_raven.mode != RavenMode::Still
-            || self.music_raven.mode != RavenMode::Still
-            || self.news_raven.mode != RavenMode::Still
+            || (self.ambient_shown
+                && !self.expanded
+                && !self.visor_sleeping
+                && self.visor_gaze.is_animating(false, self.reduce_motion))
+            || (!self.expanded && self.clock_companion.is_animating(self.reduce_motion))
+            || (self.expanded && self.idle_companion.is_animating(self.reduce_motion))
+            || self.drop_companion.is_animating(self.reduce_motion)
+            || (self.expanded && self.header_cozmo.is_animating(self.reduce_motion))
+            || self.hud_companion.is_animating(self.reduce_motion)
+            || self.music_companion.is_animating(self.reduce_motion)
+            || self.news_companion.is_animating(self.reduce_motion)
             || self.drag_approaching
             || self.drop_hinting
             || self.drag_approach > 0.005
@@ -1670,7 +1702,6 @@ impl NotchApp {
             || self.shelf_flash_t > 0.005
             || self.notif_pulse_t > 0.005
             || (!self.reduce_motion && self.activities.iter().any(|a| a.state == "Running"))
-            || (self.expanded && self.page == NotchPage::Focus && self.focus.is_paused())
             || (self.expanded && self.page == NotchPage::Weather && !self.reduce_motion)
             || (self.expanded && self.page == NotchPage::Pray && !self.reduce_motion)
             || (self.page == NotchPage::Agenda && self.calendar_fetching)
@@ -1837,7 +1868,7 @@ impl NotchApp {
 
         // Focus timer tick
         let prev_focus_secs = self.focus.remaining().as_secs();
-        let (focused, focus_msg) = self.focus.tick(&self.store.data.settings, self.lang);
+        let (focused, focus_notice) = self.focus.tick(&self.store.data.settings);
         if self.focus.state == FocusState::Running
             && self.focus.remaining().as_secs() != prev_focus_secs
         {
@@ -1849,7 +1880,8 @@ impl NotchApp {
             *self.store.data.focus.days.entry(key).or_insert(0) += secs;
             self.store_dirty_at = Some(now_inst + Duration::from_millis(500));
         }
-        if let Some(m) = focus_msg {
+        if let Some(notice) = focus_notice {
+            let m = focus_notice_to_hud(notice, &self.store.data.settings, self.lang);
             self.show_hud(m, factories);
         }
         if self.focus.is_active() != self.focus_was_active {
@@ -1943,7 +1975,7 @@ impl NotchApp {
         self.check_prayer_notifications(now_local, factories);
 
         // Bench transitions driver
-        if self.bench.as_deref() == Some("transicoes")
+        if self.bench.as_deref() == Some("transitions")
             && let Some(next_at) = self.bench_next_step_at
             && now_inst >= next_at
             && !self.bench_done
@@ -1973,7 +2005,7 @@ impl NotchApp {
                 self.update_companion();
                 self.update_targets(factories);
             }
-            "transicoes" | "transitions" => {
+            "transitions" => {
                 self.simulate_bench_track(factories);
                 self.bench_cycle = 1;
                 self.bench_step = 0;
@@ -2017,19 +2049,19 @@ impl NotchApp {
 
     fn step_bench_transitions(&mut self, factories: Option<&D2dFactories>) {
         if self.bench_cycle > 12 {
-            self.frame_timings.note("fim");
+            self.frame_timings.note("end");
             self.bench_done = true;
             self.bench_next_step_at = None;
             return;
         }
         let labels = [
-            "abrir",
-            "aba-agenda",
-            "aba-tarefas",
-            "aba-midia",
-            "fechar",
+            "open",
+            "tab-agenda",
+            "tab-tasks",
+            "tab-media",
+            "close",
             "hud",
-            "hud-sair",
+            "hud-exit",
         ];
         let label = labels[self.bench_step];
         self.frame_timings.begin(label, self.bench_cycle);
@@ -2069,6 +2101,33 @@ impl NotchApp {
     pub fn log_info(area: &str, msg: &str) {
         Log::info(area, msg);
     }
+
+    pub fn current_online_config(&self) -> OnlineSyncConfig {
+        let s = &self.store.data.settings;
+        OnlineSyncConfig {
+            lang: self.lang,
+            calendar_ids: s.calendar_ids.clone(),
+            tasks_sync_enabled: s.tasks_sync_enabled,
+            tasks_list_id: s.tasks_list_id.clone(),
+            weather_coords: if s.weather_enabled {
+                s.weather_latitude.zip(s.weather_longitude)
+            } else {
+                None
+            },
+            update_check_enabled: s.update_check_enabled,
+        }
+    }
+
+    pub fn sync_online_config(&self) {
+        let next = self.current_online_config();
+        let (lock, cvar) = &*self.online_sync;
+        if let Ok(mut cur) = lock.lock()
+            && *cur != next
+        {
+            *cur = next;
+            cvar.notify_all();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2080,8 +2139,8 @@ mod tests {
     #[test]
     fn spring_and_bench_transitions_converge() {
         let mut app = NotchApp::new(
-            Some("transicoes".to_string()),
-            Some("padrao".to_string()),
+            Some("transitions".to_string()),
+            Some("default".to_string()),
             None,
             None,
         );
@@ -2129,11 +2188,16 @@ mod tests {
     fn hidden_notch_stops_continuous_frames_and_hud_reserves_privacy_room() {
         let mut app = NotchApp::new(None, None, None, None);
         app.ambient_shown = true;
+        app.visor_gaze.trigger_blink(false);
         assert!(app.needs_continuous_frames());
         app.hidden_by_user = true;
         assert!(!app.needs_continuous_frames());
 
         app.hidden_by_user = false;
+        app.session_locked = true;
+        assert!(!app.needs_continuous_frames());
+        app.session_locked = false;
+
         app.ambient_shown = false;
         app.camera_apps = vec!["obs64.exe".to_string()];
         app.hud_active = true;
@@ -2144,6 +2208,37 @@ mod tests {
             "HUD target width should reserve room for privacy dots: {}",
             app.width.target
         );
+    }
+
+    #[test]
+    fn idle_clock_companion_and_paused_focus_sleep_continuous_frames() {
+        let mut app = NotchApp::new(None, None, None, None);
+        app.snap_all_springs();
+        app.animating = false;
+        // Settle initial perch blink until continuous frames sleep
+        for _ in 0..120 {
+            app.step_animations(0.033, None);
+            if !app.needs_continuous_frames() {
+                break;
+            }
+        }
+        assert!(!app.needs_continuous_frames());
+
+        // Moving cursor wakes clock_companion via poll_idle_gaze
+        assert!(app.poll_idle_gaze(Some((200.0, 200.0))));
+        assert!(app.needs_continuous_frames());
+
+        // Paused focus page does not force continuous frames once settled
+        app.focus.start();
+        app.focus.pause();
+        app.show_page("focus", 300, None);
+        for _ in 0..200 {
+            app.step_animations(0.033, None);
+            if !app.needs_continuous_frames() {
+                break;
+            }
+        }
+        assert!(!app.needs_continuous_frames());
     }
 
     #[test]
@@ -2300,7 +2395,7 @@ mod tests {
         };
         app.handle_notification_event(NotificationEvent::Added(sn.clone()), None);
         app.handle_notification_event(NotificationEvent::Added(sn), None);
-        assert_eq!(app.notifications.len(), 1);
+        assert_eq!(app.notifications.items.len(), 1);
         assert_eq!(app.unread_notifications_count(), 1);
         assert!(app.hud_active);
 
@@ -2308,7 +2403,7 @@ mod tests {
         assert_eq!(app.unread_notifications_count(), 0);
 
         app.handle_notification_event(NotificationEvent::Removed(42), None);
-        assert!(app.notifications.is_empty());
+        assert!(app.notifications.items.is_empty());
     }
 
     #[test]
@@ -2368,10 +2463,73 @@ mod tests {
         let target = sched.prayers[3].time;
         app.check_prayer_notifications(target + chrono::Duration::seconds(5), None);
         assert!(app.hud_active);
-        assert_eq!(app.notifications.len(), 1);
+        assert_eq!(app.notifications.items.len(), 1);
 
         // Calling again within the 90s window does not duplicate the notification
         app.check_prayer_notifications(target + chrono::Duration::seconds(20), None);
-        assert_eq!(app.notifications.len(), 1);
+        assert_eq!(app.notifications.items.len(), 1);
+    }
+
+    #[test]
+    fn tasks_generate_unique_ids_and_preserve_across_sync() {
+        let mut app = NotchApp::new(None, None, None, None);
+        app.add_task("Call Ana at 3pm");
+        app.add_task("Buy milk");
+        assert_eq!(app.store.data.tasks.len(), 2);
+        let id0 = app.store.data.tasks[0].id.clone();
+        let id1 = app.store.data.tasks[1].id.clone();
+        assert_ne!(id0, id1);
+
+        let due = app.store.data.tasks[0].due.as_deref().unwrap();
+        let today = Local::now().date_naive();
+        let tomorrow = today + chrono::Duration::days(1);
+        assert!(
+            due.starts_with(&today.format("%Y-%m-%d").to_string())
+                || due.starts_with(&tomorrow.format("%Y-%m-%d").to_string()),
+            "unexpected due date: {due}"
+        );
+
+        app.apply_remote_tasks_snapshot(
+            vec![],
+            "list-1".to_string(),
+            &[mochi_winrt::tasks::RemoteTask {
+                id: "g-1".to_string(),
+                title: "Remote task".to_string(),
+                done: false,
+                due_date: None,
+            }],
+        );
+        assert_eq!(app.store.data.tasks.len(), 3);
+        assert!(app.store.data.tasks.iter().any(|t| t.id == id0));
+        assert!(app.store.data.tasks.iter().any(|t| t.id == id1));
+        let remote = app
+            .store
+            .data
+            .tasks
+            .iter()
+            .find(|t| t.google_id.as_deref() == Some("g-1"))
+            .unwrap();
+        let remote_id = remote.id.clone();
+        assert!(!remote_id.starts_with("sync-"));
+
+        app.apply_remote_tasks_snapshot(
+            vec![],
+            "list-1".to_string(),
+            &[mochi_winrt::tasks::RemoteTask {
+                id: "g-1".to_string(),
+                title: "Remote task updated".to_string(),
+                done: false,
+                due_date: None,
+            }],
+        );
+        let remote_after = app
+            .store
+            .data
+            .tasks
+            .iter()
+            .find(|t| t.google_id.as_deref() == Some("g-1"))
+            .unwrap();
+        assert_eq!(remote_after.id, remote_id);
+        assert_eq!(remote_after.text, "Remote task updated");
     }
 }

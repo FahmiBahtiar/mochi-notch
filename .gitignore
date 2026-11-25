@@ -23,5 +23,5 @@ data.json
 *.log
 *.bad
 *.mochi-backup
-vitrine.json
+showcase.json
 bench-frames.csv

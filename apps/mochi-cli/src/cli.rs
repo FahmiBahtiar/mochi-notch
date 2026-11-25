@@ -13,8 +13,7 @@ fn rest() -> Arg {
         .value_parser(value_parser!(OsString))
 }
 
-/// Routes argv to a command. Anything this parser rejects runs the original, so it never
-/// has to match every way the original accepts its arguments.
+/// Routes argv to a subcommand.
 pub fn command() -> Command {
     Command::new(ROOT)
         .disable_help_flag(true)

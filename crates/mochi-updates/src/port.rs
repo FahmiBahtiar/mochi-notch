@@ -23,19 +23,19 @@ fn parse_dotnet_version(s: &str) -> Option<(i32, i32, i32, i32)> {
     Some((nums[0], nums[1], build, rev))
 }
 
-pub fn is_newer_version(tag: Option<String>, current_version: String) -> Result<bool, String> {
-    let Some(cur) = parse_dotnet_version(&current_version) else {
-        return Ok(false);
+pub fn is_newer_version(tag: Option<&str>, current_version: &str) -> bool {
+    let Some(cur) = parse_dotnet_version(current_version) else {
+        return false;
     };
     let Some(tag) = tag else {
-        return Ok(false);
+        return false;
     };
     let cleaned = tag.trim().trim_start_matches(['v', 'V']);
     let Some(ver) = parse_dotnet_version(cleaned) else {
-        return Ok(false);
+        return false;
     };
     let norm = (ver.0, ver.1, ver.2.max(0), -1);
-    Ok(norm > cur)
+    norm > cur
 }
 
 #[cfg(test)]
@@ -44,8 +44,8 @@ mod tests {
 
     #[test]
     fn compares_semver_tags_against_current_version() {
-        assert!(is_newer_version(Some("v0.2.0".into()), "0.1.0".into()).unwrap());
-        assert!(!is_newer_version(Some("v0.1.0".into()), "0.1.0".into()).unwrap());
-        assert!(!is_newer_version(None, "0.1.0".into()).unwrap());
+        assert!(is_newer_version(Some("v0.2.0"), "0.1.0"));
+        assert!(!is_newer_version(Some("v0.1.0"), "0.1.0"));
+        assert!(!is_newer_version(None, "0.1.0"));
     }
 }

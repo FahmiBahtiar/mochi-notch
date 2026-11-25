@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct HourlyWeatherPoint {
@@ -42,6 +42,19 @@ pub struct WeatherPlace {
     pub longitude: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ParsedWeatherReport {
+    pub temperature: f64,
+    pub code: i64,
+    pub is_day: bool,
+    pub high: Option<f64>,
+    pub low: Option<f64>,
+    pub rain_at: Option<NaiveDateTime>,
+    pub rain_chance: i64,
+    pub icon: &'static str,
+    pub temperature_text: String,
+}
+
 pub fn parse_dt(s: &str) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
         .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
@@ -51,12 +64,6 @@ pub fn parse_dt(s: &str) -> Option<NaiveDateTime> {
             NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|d| d.and_hms_opt(0, 0, 0).unwrap())
         })
         .ok()
-}
-
-fn format_dt_o(dt: NaiveDateTime) -> String {
-    let base = dt.format("%Y-%m-%dT%H:%M:%S");
-    let ticks = dt.and_utc().timestamp_subsec_nanos() / 100;
-    format!("{base}.{ticks:07}")
 }
 
 pub fn weather_icon_name(code: i64, is_day: bool) -> &'static str {
@@ -78,29 +85,6 @@ pub fn weather_icon_name(code: i64, is_day: bool) -> &'static str {
     }
 }
 
-pub fn weather_describe(code: i64) -> &'static str {
-    match code {
-        0 => "Clear",
-        1 => "Mostly clear",
-        2 => "Partly cloudy",
-        3 => "Cloudy",
-        45 | 48 => "Fog",
-        51 | 53 | 55 => "Drizzle",
-        56 | 57 => "Freezing drizzle",
-        61 => "Light rain",
-        63 => "Rain",
-        65 => "Heavy rain",
-        66 | 67 => "Freezing rain",
-        71 | 73 | 75 | 77 => "Snow",
-        80 | 81 => "Rain showers",
-        82 => "Heavy showers",
-        85 | 86 => "Snow showers",
-        95 => "Thunderstorm",
-        96 | 99 => "Thunderstorm with hail",
-        _ => "—",
-    }
-}
-
 fn try_number(v: &Value, key: &str) -> Option<f64> {
     v.get(key).and_then(Value::as_f64)
 }
@@ -112,22 +96,12 @@ fn first_number(v: &Value, key: &str) -> Option<f64> {
         .and_then(Value::as_f64)
 }
 
-pub fn parse_weather_report(json_str: String, now_iso: String) -> Result<Option<Value>, String> {
-    let Some(now) = parse_dt(&now_iso) else {
-        return Ok(None);
-    };
-    let Ok(root) = serde_json::from_str::<Value>(&json_str) else {
-        return Ok(None);
-    };
-    let Some(current) = root.get("current") else {
-        return Ok(None);
-    };
-    let (Some(temperature), Some(code_f)) = (
-        try_number(current, "temperature_2m"),
-        try_number(current, "weather_code"),
-    ) else {
-        return Ok(None);
-    };
+pub fn parse_weather_report(root: &Value, now: NaiveDateTime) -> Option<ParsedWeatherReport> {
+    let current = root.get("current")?;
+    let (temperature, code_f) = (
+        try_number(current, "temperature_2m")?,
+        try_number(current, "weather_code")?,
+    );
     let code = code_f as i64;
     let is_day = try_number(current, "is_day").is_none_or(|d| d >= 1.0);
 
@@ -169,27 +143,26 @@ pub fn parse_weather_report(json_str: String, now_iso: String) -> Result<Option<
         }
     }
 
-    let temp_text = format!("{}°", temperature.round_ties_even() as i64);
-    Ok(Some(json!({
-        "Temperature": temperature,
-        "Code": code,
-        "IsDay": is_day,
-        "High": high,
-        "Low": low,
-        "RainAtIso": rain_at.map(format_dt_o),
-        "RainChance": rain_chance,
-        "Icon": weather_icon_name(code, is_day),
-        "Description": weather_describe(code),
-        "TemperatureText": temp_text,
-    })))
+    let temperature_text = format!("{}°", temperature.round_ties_even() as i64);
+    Some(ParsedWeatherReport {
+        temperature,
+        code,
+        is_day,
+        high,
+        low,
+        rain_at,
+        rain_chance,
+        icon: weather_icon_name(code, is_day),
+        temperature_text,
+    })
 }
 
-pub fn parse_weather_places(json_str: String) -> Result<Vec<Value>, String> {
-    let Ok(root) = serde_json::from_str::<Value>(&json_str) else {
-        return Ok(Vec::new());
+pub fn parse_weather_places(json_str: &str) -> Vec<WeatherPlace> {
+    let Ok(root) = serde_json::from_str::<Value>(json_str) else {
+        return Vec::new();
     };
     let Some(results) = root.get("results").and_then(Value::as_array) else {
-        return Ok(Vec::new());
+        return Vec::new();
     };
     let mut places = Vec::new();
     for r in results {
@@ -208,29 +181,21 @@ pub fn parse_weather_places(json_str: String) -> Result<Vec<Value>, String> {
         .flatten()
         .filter(|s| !s.is_empty())
         .collect();
-        places.push(json!({
-            "Name": name,
-            "Detail": parts.join(", "),
-            "Latitude": lat,
-            "Longitude": lon,
-        }));
+        places.push(WeatherPlace {
+            name: name.to_string(),
+            detail: parts.join(", "),
+            latitude: lat,
+            longitude: lon,
+        });
     }
-    Ok(places)
+    places
 }
 
-pub fn coarse_coordinate(coordinate: f64) -> Result<f64, String> {
+pub fn coarse_coordinate(coordinate: f64) -> f64 {
     if coordinate.is_nan() || coordinate.is_infinite() || coordinate.abs() > 1e15 {
-        return Ok(coordinate);
+        return coordinate;
     }
-    Ok((coordinate * 100.0).round_ties_even() / 100.0)
-}
-
-pub fn weather_icon_for(code: i64, is_day: bool) -> Result<String, String> {
-    Ok(weather_icon_name(code, is_day).to_string())
-}
-
-pub fn weather_is_wet(code: i64) -> Result<bool, String> {
-    Ok(code >= 51)
+    (coordinate * 100.0).round_ties_even() / 100.0
 }
 
 #[cfg(test)]
@@ -239,16 +204,17 @@ mod tests {
 
     #[test]
     fn parses_open_meteo_report_and_rounds_coordinates() {
-        assert_eq!(coarse_coordinate(-6.2088).unwrap(), -6.21);
-        assert_eq!(weather_icon_for(0, false).unwrap(), "ClearNight");
-        assert!(weather_is_wet(61).unwrap());
-        assert!(!weather_is_wet(2).unwrap());
+        assert_eq!(coarse_coordinate(-6.2088), -6.21);
+        assert_eq!(weather_icon_name(0, false), "ClearNight");
 
         let raw = r#"{"current":{"temperature_2m":29.4,"weather_code":2,"is_day":1},"daily":{"temperature_2m_max":[32.0],"temperature_2m_min":[25.0]}}"#;
-        let rep = parse_weather_report(raw.to_string(), "2026-11-24T12:00:00".to_string())
+        let root: Value = serde_json::from_str(raw).unwrap();
+        let now = NaiveDate::from_ymd_opt(2026, 11, 24)
             .unwrap()
+            .and_hms_opt(12, 0, 0)
             .unwrap();
-        assert_eq!(rep["TemperatureText"], "29°");
-        assert_eq!(rep["Icon"], "PartlyCloudy");
+        let rep = parse_weather_report(&root, now).unwrap();
+        assert_eq!(rep.temperature_text, "29°");
+        assert_eq!(rep.icon, "PartlyCloudy");
     }
 }

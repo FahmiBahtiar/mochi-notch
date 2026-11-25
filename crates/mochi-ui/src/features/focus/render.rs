@@ -222,17 +222,7 @@ pub(crate) fn draw_focus_page(
     }
     let rem = app.focus.remaining();
     let time_s = format!("{:02}:{:02}", rem.as_secs() / 60, rem.as_secs() % 60);
-    let time_op = if app.focus.is_paused() {
-        if app.reduce_motion {
-            0.6
-        } else {
-            let t = (Local::now().timestamp_millis() % 1800) as f32 / 900.0;
-            let wave = if t <= 1.0 { t } else { 2.0 - t };
-            0.35 + 0.65 * wave
-        }
-    } else {
-        1.0
-    };
+    let time_op = if app.focus.is_paused() { 0.55 } else { 1.0 };
     surf.draw_text(
         factories,
         &time_s,
@@ -256,11 +246,9 @@ pub(crate) fn draw_focus_page(
     let right_y = fy + (fh - 112.0) / 2.0;
     let today_secs = app.focus_today_seconds();
     let today_mins = today_secs / 60;
-    let today_fmt = mochi_focus::port::format_focus_duration(today_mins)
-        .unwrap_or_else(|_| format!("{today_mins} min"));
+    let today_fmt = mochi_focus::port::format_focus_duration(today_mins);
     let goal_mins = i64::from(app.store.data.settings.focus_goal_minutes);
-    let goal_fmt = mochi_focus::port::format_focus_duration(goal_mins)
-        .unwrap_or_else(|_| format!("{goal_mins} min"));
+    let goal_fmt = mochi_focus::port::format_focus_duration(goal_mins);
     let goal_line = if today_mins >= goal_mins {
         s.focus_goal_met.to_string()
     } else {

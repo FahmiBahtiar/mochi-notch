@@ -1,8 +1,8 @@
 use mochi_winrt::strings::{fmt1, fmt2};
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
-use crate::features::companion::state::RavenAnimator;
+use crate::features::companion::render::draw_companion_sprite;
+use crate::features::companion::state::CompanionAnimator;
 use crate::features::widgets::render::{draw_circle_button, draw_pill_button};
 use crate::render::{HitMap, RectF};
 use crate::state::{HoverTarget, NotchApp};
@@ -473,9 +473,9 @@ pub(crate) fn draw_weather_page(
         let body_y = row_y + 40.0;
         let body_h = (wy + wh - 10.0 - body_y).max(40.0);
         if app.weather_places.is_empty() {
-            let mut perch = RavenAnimator::default();
+            let mut perch = CompanionAnimator::default();
             perch.perch();
-            draw_raven_sprite(
+            draw_companion_sprite(
                 factories,
                 surf,
                 &perch,

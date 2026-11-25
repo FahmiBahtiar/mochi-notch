@@ -44,12 +44,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_CLIPBOARDUPDATE, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DISPLAYCHANGE, WM_DROPFILES,
     WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE,
     WM_MOUSEWHEEL, WM_NCCALCSIZE, WM_NCCREATE, WM_NCHITTEST, WM_RBUTTONUP, WM_TIMER,
-    WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING, WNDCLASSEXW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING, WM_WTSSESSION_CHANGE, WNDCLASSEXW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
 };
 use windows_core::{PCWSTR, Ref, implement};
 
-use mochi_winrt::agent_setup::{AgentSetup, AgentStatus};
 use mochi_winrt::audio::{AudioEvent, AudioService};
 use mochi_winrt::calendar::{CalendarEvent, CalendarInfo, fetch_calendars_and_events};
 use mochi_winrt::clipboard::{ClipboardPayload, read_clipboard_payload};
@@ -69,10 +69,13 @@ use mochi_winrt::pipe::ActivityPipe;
 use mochi_winrt::tasks::{RemoteTask, TaskListInfo, fetch_google_task_lists, fetch_google_tasks};
 use mochi_winrt::updates::fetch_latest_release_tag;
 use mochi_winrt::watchers::{
-    create_single_instance_mutex, detect_fullscreen, start_brightness_watcher,
-    start_camera_watcher, start_network_watcher,
+    create_single_instance_mutex, detect_fullscreen, is_session_locked,
+    register_session_notifications, start_brightness_watcher, start_camera_watcher,
+    start_network_watcher, unregister_session_notifications,
 };
-use mochi_winrt::weather::{HourlyWeatherPoint, WeatherReport, fetch_weather};
+use mochi_winrt::weather::{
+    HourlyWeatherPoint, WeatherPlace, WeatherReport, fetch_weather, search_weather_places,
+};
 
 use crate::d2d::{D2dFactories, D2dSurface};
 use crate::render::{HitMap, render_notch};
@@ -118,10 +121,19 @@ enum BgEvent {
     LyricsLoaded(String, Option<Lyrics>),
     ActivityLine(String, mpsc::Sender<String>),
     CalendarLoaded(Vec<CalendarInfo>, Vec<CalendarEvent>),
+    CalendarError(String),
     GoogleAuthDone(Result<serde_json::Value, String>),
     TasksLoaded(Vec<TaskListInfo>, String, Vec<RemoteTask>),
+    TasksError(String),
     WeatherLoaded(Option<WeatherReport>),
-    UpdateTag(Option<String>),
+    WeatherPlacesLoaded(Vec<WeatherPlace>),
+    WeatherLocated(Option<(f64, f64)>),
+    PrayPlacesLoaded(Vec<WeatherPlace>),
+    PrayLocated(Option<(f64, f64)>),
+    UpdateCheckDone {
+        tag: Option<String>,
+        notify_hud: bool,
+    },
     SystemNotification(NotificationEvent),
 }
 
@@ -140,6 +152,7 @@ struct WindowHost {
     mic_reg: bool,
     drop_registered: bool,
     clipboard_listening: bool,
+    session_notif_reg: bool,
     excluded_capture: Option<bool>,
     tracking_mouse: bool,
     click_through: bool,
@@ -187,10 +200,10 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
         opts.frames_path.clone(),
     );
 
-    if opts.bench.as_deref() == Some("vitrine")
+    if opts.bench.as_deref() == Some("showcase")
         && let Some(ref dir) = opts.shots_dir
     {
-        run_vitrine_shots(&mut app, &factories, dir);
+        run_showcase_shots(&mut app, &factories, dir);
         return 0;
     }
 
@@ -264,6 +277,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
         mic_reg: false,
         drop_registered: false,
         clipboard_listening: false,
+        session_notif_reg: false,
         excluded_capture: None,
         tracking_mouse: false,
         click_through: false,
@@ -345,7 +359,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
 
     update_hotkeys(&mut host);
     apply_capture_exclusion(&mut host);
-    if opts.bench.as_deref() != Some("transicoes") {
+    if opts.bench.as_deref() != Some("transitions") {
         add_tray_icon(&mut host);
     }
 
@@ -361,6 +375,12 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
         }
         if AddClipboardFormatListener(hwnd).is_ok() {
             (*host_ptr).clipboard_listening = true;
+        }
+        if opts.bench.is_none() && opts.shots_dir.is_none() {
+            (*host_ptr).session_notif_reg = register_session_notifications(hwnd);
+            if let Ok(mut app) = (*host_ptr).app.try_borrow_mut() {
+                app.session_locked = is_session_locked();
+            }
         }
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         let _ = SetTimer(Some(hwnd), TIMER_MAIN, 250, None);
@@ -390,6 +410,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
     // Main message + 100Hz DwmFlush vsync loop
     let mut msg = MSG::default();
     let mut last_frame = Instant::now();
+    let mut fast_dwm_count: u32 = 0;
     loop {
         // SAFETY: `host_ptr` remains valid until WM_QUIT after WM_DESTROY.
         let continuous = unsafe { (*host_ptr).app.borrow().needs_continuous_frames() };
@@ -413,10 +434,20 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
                     DispatchMessageW(&msg);
                 }
             }
-            // Lock cleanly to DWM vblank (10.0 ms on 100 Hz monitor)
+            // Lock cleanly to DWM vblank (10.0 ms on 100 Hz monitor), guarding against non-blocking spins
+            let dwm_start = Instant::now();
             // SAFETY: DwmFlush waits for next DWM composition vblank.
-            unsafe {
-                let _ = DwmFlush();
+            let dwm_ok = unsafe { DwmFlush() }.is_ok();
+            if !dwm_ok {
+                fast_dwm_count = 0;
+                std::thread::sleep(Duration::from_millis(10));
+            } else if dwm_start.elapsed() < Duration::from_millis(2) {
+                fast_dwm_count = fast_dwm_count.saturating_add(1);
+                if fast_dwm_count >= 3 {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            } else {
+                fast_dwm_count = 0;
             }
             let now = Instant::now();
             let dt = now.duration_since(last_frame).as_secs_f64();
@@ -477,6 +508,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
                 }
             }
         } else {
+            fast_dwm_count = 0;
             // SAFETY: Blocking wait when idle (0% CPU).
             let ret = unsafe { GetMessageW(&raw mut msg, None, 0, 0) };
             if ret.0 <= 0 {
@@ -587,21 +619,9 @@ fn start_services(host: &mut WindowHost) {
     }));
 
     // Background online sync (Calendar, Tasks, Weather, Updates) without blocking the 100Hz UI thread
-    let (auth_arc, cal_ids, tasks_on, tasks_list_id, weather_cfg, upd_enabled) = {
+    let (auth_arc, online_sync) = {
         let a = host.app.borrow();
-        let s = &a.store.data.settings;
-        (
-            Arc::clone(&a.google_auth),
-            s.calendar_ids.clone(),
-            s.tasks_sync_enabled,
-            s.tasks_list_id.clone(),
-            if s.weather_enabled {
-                s.weather_latitude.zip(s.weather_longitude)
-            } else {
-                None
-            },
-            s.update_check_enabled,
-        )
+        (Arc::clone(&a.google_auth), Arc::clone(&a.online_sync))
     };
     let tx_online = host.bg_tx.clone();
     let stop_online = Arc::clone(&stop);
@@ -610,49 +630,102 @@ fn start_services(host: &mut WindowHost) {
         .spawn(move || {
             std::thread::sleep(Duration::from_secs(2));
             let mut checked_updates = false;
+            let mut last_cal_ids: Option<Vec<String>> = None;
+            let mut last_tasks_on = false;
+            let mut last_tasks_lid: Option<String> = None;
+            let mut last_weather_cfg: Option<(f64, f64)> = None;
+            let mut last_full_poll: Option<Instant> = None;
+
             while !stop_online.load(Ordering::Relaxed) {
-                if let Ok(mut guard) = auth_arc.lock()
-                    && guard.is_signed_in()
-                {
-                    if guard
-                        .has_scopes(&[GoogleAuth::CALENDAR_LIST_SCOPE, GoogleAuth::EVENTS_SCOPE])
-                        && let Ok((cals, evs)) =
-                            fetch_calendars_and_events(&mut guard, cal_ids.as_deref())
+                let cfg = {
+                    let (lock, _) = &*online_sync;
+                    lock.lock().map(|g| g.clone()).ok()
+                };
+                let Some(cfg) = cfg else {
+                    break;
+                };
+
+                let full_due =
+                    last_full_poll.is_none_or(|t| t.elapsed() >= Duration::from_secs(300));
+                let cal_due = full_due || cfg.calendar_ids != last_cal_ids;
+                let tasks_due = cfg.tasks_sync_enabled
+                    && (full_due || !last_tasks_on || cfg.tasks_list_id != last_tasks_lid);
+                let weather_due = cfg.weather_coords.is_some()
+                    && (full_due || cfg.weather_coords != last_weather_cfg);
+                let upd_due = cfg.update_check_enabled && !checked_updates;
+
+                let (signed_in, has_cal, has_tasks) = auth_arc
+                    .lock()
+                    .map(|g| {
+                        let si = g.is_signed_in();
+                        (
+                            si,
+                            si && g.has_scopes(&[
+                                GoogleAuth::CALENDAR_LIST_SCOPE,
+                                GoogleAuth::EVENTS_SCOPE,
+                            ]),
+                            si && g.has_scopes(&[GoogleAuth::TASKS_SCOPE]),
+                        )
+                    })
+                    .unwrap_or((false, false, false));
+
+                if signed_in && cal_due && has_cal {
+                    if let Ok((cals, evs)) =
+                        fetch_calendars_and_events(&auth_arc, cfg.calendar_ids.as_deref())
                     {
                         let _ = tx_online.send(BgEvent::CalendarLoaded(cals, evs));
                         wake();
                     }
-                    if tasks_on
-                        && guard.has_scopes(&[GoogleAuth::TASKS_SCOPE])
-                        && let Ok(lists) = fetch_google_task_lists(&mut guard)
-                    {
-                        let lid = tasks_list_id
+                    last_cal_ids = cfg.calendar_ids.clone();
+                }
+                if signed_in && tasks_due && has_tasks {
+                    if let Ok(lists) = fetch_google_task_lists(&auth_arc) {
+                        let lid = cfg
+                            .tasks_list_id
                             .clone()
                             .or_else(|| lists.first().map(|l| l.id.clone()));
                         if let Some(lid) = lid
-                            && let Ok(remote) = fetch_google_tasks(&mut guard, &lid)
+                            && let Ok(remote) = fetch_google_tasks(&auth_arc, &lid)
                         {
                             let _ = tx_online.send(BgEvent::TasksLoaded(lists, lid, remote));
                             wake();
                         }
                     }
+                    last_tasks_on = cfg.tasks_sync_enabled;
+                    last_tasks_lid = cfg.tasks_list_id.clone();
+                } else if !cfg.tasks_sync_enabled {
+                    last_tasks_on = false;
+                    last_tasks_lid = cfg.tasks_list_id.clone();
                 }
-                if let Some((lat, lon)) = weather_cfg {
-                    let rep = fetch_weather(lat, lon, lang);
+                if weather_due && let Some((lat, lon)) = cfg.weather_coords {
+                    let rep = fetch_weather(lat, lon, cfg.lang);
                     let _ = tx_online.send(BgEvent::WeatherLoaded(rep));
                     wake();
+                    last_weather_cfg = cfg.weather_coords;
+                } else if cfg.weather_coords.is_none() {
+                    last_weather_cfg = None;
                 }
-                if upd_enabled && !checked_updates {
+                if upd_due {
                     checked_updates = true;
                     let tag = fetch_latest_release_tag();
-                    let _ = tx_online.send(BgEvent::UpdateTag(tag));
+                    let _ = tx_online.send(BgEvent::UpdateCheckDone {
+                        tag,
+                        notify_hud: false,
+                    });
                     wake();
                 }
-                for _ in 0..300 {
+                if full_due {
+                    last_full_poll = Some(Instant::now());
+                }
+
+                let (lock, cvar) = &*online_sync;
+                if let Ok(guard) = lock.lock() {
                     if stop_online.load(Ordering::Relaxed) {
                         break;
                     }
-                    std::thread::sleep(Duration::from_secs(1));
+                    if *guard == cfg {
+                        let _ = cvar.wait_timeout(guard, Duration::from_secs(300));
+                    }
                 }
             }
         });
@@ -746,11 +819,18 @@ fn drain_bg_events(host: &mut WindowHost) {
             }
             BgEvent::CalendarLoaded(cals, evs) => {
                 let mut app = host.app.borrow_mut();
+                app.calendar_fetching = false;
                 app.calendars = cals;
                 app.calendar_events = evs;
                 app.calendar_last_fetched = Some(Local::now().naive_local());
                 app.calendar_error = None;
                 app.update_clock(Some(&host.factories));
+            }
+            BgEvent::CalendarError(e) => {
+                let mut app = host.app.borrow_mut();
+                app.calendar_fetching = false;
+                app.calendar_error = Some(e);
+                app.dirty = true;
             }
             BgEvent::GoogleAuthDone(res) => {
                 let mut app = host.app.borrow_mut();
@@ -773,7 +853,7 @@ fn drain_bg_events(host: &mut WindowHost) {
                         match ok {
                             Ok(_) => {
                                 app.calendar_error = None;
-                                app.refresh_google_calendar_sync();
+                                spawn_calendar_refresh(&host.bg_tx, host.hwnd, &mut app);
                             }
                             Err(e) => app.calendar_error = Some(e),
                         }
@@ -784,97 +864,80 @@ fn drain_bg_events(host: &mut WindowHost) {
             }
             BgEvent::TasksLoaded(lists, lid, remote) => {
                 let mut app = host.app.borrow_mut();
-                app.task_lists = lists;
-                app.store.data.settings.tasks_list_id = Some(lid);
-                let local_json: Vec<serde_json::Value> = app
-                    .store
-                    .data
-                    .tasks
-                    .iter()
-                    .map(|t| {
-                        serde_json::json!({
-                            "Text": t.text,
-                            "Done": t.done,
-                            "DueIso": t.due,
-                            "DueAllDay": t.due_all_day,
-                            "GoogleId": t.google_id,
-                            "Dirty": t.dirty,
-                        })
-                    })
-                    .collect();
-                let remote_json: Vec<serde_json::Value> = remote
-                    .iter()
-                    .map(|r| {
-                        serde_json::json!({
-                            "Id": r.id,
-                            "Title": r.title,
-                            "Done": r.done,
-                            "DueDateIso": r.due_date.map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string()),
-                        })
-                    })
-                    .collect();
-                if let Ok(merged) = mochi_winrt::mochi_tasks::port::apply_remote_tasks(
-                    Some(local_json),
-                    Some(remote_json),
-                    Some(app.store.data.task_deletes.clone()),
-                ) {
-                    app.store.data.tasks = merged
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, v)| mochi_winrt::paths::TaskData {
-                            id: format!("sync-{i}"),
-                            text: v
-                                .get("Text")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("")
-                                .to_string(),
-                            done: v
-                                .get("Done")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false),
-                            due: v
-                                .get("DueIso")
-                                .and_then(serde_json::Value::as_str)
-                                .map(str::to_string),
-                            due_all_day: v
-                                .get("DueAllDay")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false),
-                            reminded: false,
-                            google_id: v
-                                .get("GoogleId")
-                                .and_then(serde_json::Value::as_str)
-                                .map(str::to_string),
-                            dirty: v
-                                .get("Dirty")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false),
-                        })
-                        .collect();
-                    app.tasks_last_synced = Some(Local::now().naive_local());
-                    app.tasks_error = None;
-                    app.dirty = true;
-                }
+                app.tasks_syncing = false;
+                app.apply_remote_tasks_snapshot(lists, lid, &remote);
+            }
+            BgEvent::TasksError(e) => {
+                let mut app = host.app.borrow_mut();
+                app.tasks_syncing = false;
+                app.tasks_error = Some(e);
+                app.dirty = true;
             }
             BgEvent::WeatherLoaded(rep) => {
                 let mut app = host.app.borrow_mut();
-                app.weather_report = rep;
-                app.update_targets(Some(&host.factories));
+                app.apply_weather_report(rep, Some(&host.factories));
             }
-            BgEvent::UpdateTag(tag) => {
-                if let Some(t) = tag {
-                    let mut app = host.app.borrow_mut();
-                    app.store.data.updates.latest = Some(t.clone());
-                    app.store.data.updates.last_check =
-                        Some(Local::now().format("%Y-%m-%dT%H:%M:%S").to_string());
-                    if mochi_winrt::mochi_updates::port::is_newer_version(
-                        Some(t.clone()),
-                        env!("CARGO_PKG_VERSION").to_string(),
-                    )
-                    .unwrap_or(false)
-                    {
-                        app.update_available = Some(t);
-                    }
+            BgEvent::WeatherPlacesLoaded(places) => {
+                let mut app = host.app.borrow_mut();
+                app.apply_weather_places(places);
+            }
+            BgEvent::WeatherLocated(coords) => {
+                let mut app = host.app.borrow_mut();
+                if let Some((lat, lon)) = coords {
+                    app.store.data.settings.weather_latitude = Some(lat);
+                    app.store.data.settings.weather_longitude = Some(lon);
+                    app.store.data.settings.weather_place = Some(format!("{lat:.2}, {lon:.2}"));
+                    app.store.data.settings.weather_enabled = true;
+                    app.weather_picker_open = false;
+                    app.weather_places.clear();
+                    app.store.save_now();
+                    app.sync_online_config();
+                    spawn_weather_refresh(&host.bg_tx, host.hwnd, &mut app);
+                }
+                app.dirty = true;
+            }
+            BgEvent::PrayPlacesLoaded(places) => {
+                let mut app = host.app.borrow_mut();
+                app.apply_pray_places(places);
+            }
+            BgEvent::PrayLocated(coords) => {
+                let mut app = host.app.borrow_mut();
+                if let Some((lat, lon)) = coords {
+                    app.store.data.settings.pray_latitude = Some(lat);
+                    app.store.data.settings.pray_longitude = Some(lon);
+                    app.store.data.settings.pray_place = Some(format!("{lat:.2}, {lon:.2}"));
+                    app.pray_picker_open = false;
+                    app.pray_places.clear();
+                    app.store.save_now();
+                    app.recompute_prayer_schedule();
+                }
+                app.dirty = true;
+            }
+            BgEvent::UpdateCheckDone { tag, notify_hud } => {
+                let mut app = host.app.borrow_mut();
+                app.apply_update_tag(tag.clone());
+                if notify_hud {
+                    let s = app.lang.strings();
+                    let mut m = if let Some(t) = tag {
+                        if app.update_available.is_some() {
+                            let mut msg = HudMessage::new(Glyphs::BELL, s.hud_new_version);
+                            msg.value = Some(t);
+                            msg.duration_ms = 5000;
+                            msg
+                        } else {
+                            let mut msg = HudMessage::new("\u{E73E}", s.hud_up_to_date);
+                            msg.value = Some(env!("CARGO_PKG_VERSION").to_string());
+                            msg.duration_ms = 3000;
+                            msg
+                        }
+                    } else {
+                        let mut msg = HudMessage::new(Glyphs::BELL, s.hud_check_failed);
+                        msg.warning = true;
+                        msg.duration_ms = 3500;
+                        msg
+                    };
+                    m.kind = HudKind::Reminder;
+                    app.show_hud(m, Some(&host.factories));
                 }
             }
             BgEvent::SystemNotification(ev) => {
@@ -884,6 +947,171 @@ fn drain_bg_events(host: &mut WindowHost) {
             }
         }
     }
+}
+
+fn post_wake(hwnd_raw: usize) {
+    // SAFETY: Posting WM_WAKE to the notch window from a background worker thread.
+    unsafe {
+        let _ = PostMessageW(
+            Some(HWND(hwnd_raw as *mut _)),
+            WM_WAKE,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
+}
+
+fn spawn_calendar_refresh(bg_tx: &mpsc::Sender<BgEvent>, hwnd: HWND, app: &mut NotchApp) {
+    if app.calendar_fetching {
+        return;
+    }
+    let can_fetch = app.google_auth.lock().is_ok_and(|g| {
+        g.is_signed_in()
+            && g.has_scopes(&[GoogleAuth::CALENDAR_LIST_SCOPE, GoogleAuth::EVENTS_SCOPE])
+    });
+    if !can_fetch {
+        return;
+    }
+    app.calendar_fetching = true;
+    app.dirty = true;
+    let auth = Arc::clone(&app.google_auth);
+    let ids = app.store.data.settings.calendar_ids.clone();
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let ev = match fetch_calendars_and_events(&auth, ids.as_deref()) {
+            Ok((cals, evs)) => BgEvent::CalendarLoaded(cals, evs),
+            Err(e) => BgEvent::CalendarError(e),
+        };
+        let _ = tx.send(ev);
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_tasks_refresh(bg_tx: &mpsc::Sender<BgEvent>, hwnd: HWND, app: &mut NotchApp) {
+    if app.tasks_syncing || !app.store.data.settings.tasks_sync_enabled {
+        return;
+    }
+    let can_fetch = app
+        .google_auth
+        .lock()
+        .is_ok_and(|g| g.is_signed_in() && g.has_scopes(&[GoogleAuth::TASKS_SCOPE]));
+    if !can_fetch {
+        return;
+    }
+    app.tasks_syncing = true;
+    app.dirty = true;
+    let auth = Arc::clone(&app.google_auth);
+    let preferred_lid = app.store.data.settings.tasks_list_id.clone();
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let ev = match fetch_google_task_lists(&auth) {
+            Ok(lists) => {
+                let lid = preferred_lid.or_else(|| lists.first().map(|l| l.id.clone()));
+                if let Some(lid) = lid {
+                    match fetch_google_tasks(&auth, &lid) {
+                        Ok(remote) => BgEvent::TasksLoaded(lists, lid, remote),
+                        Err(e) => BgEvent::TasksError(e),
+                    }
+                } else {
+                    BgEvent::TasksError("No task list".to_string())
+                }
+            }
+            Err(e) => BgEvent::TasksError(e),
+        };
+        let _ = tx.send(ev);
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_weather_refresh(bg_tx: &mpsc::Sender<BgEvent>, hwnd: HWND, app: &mut NotchApp) {
+    let Some((lat, lon)) = app
+        .store
+        .data
+        .settings
+        .weather_latitude
+        .zip(app.store.data.settings.weather_longitude)
+    else {
+        return;
+    };
+    let lang = app.lang;
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let rep = fetch_weather(lat, lon, lang);
+        let _ = tx.send(BgEvent::WeatherLoaded(rep));
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_weather_search(
+    bg_tx: &mpsc::Sender<BgEvent>,
+    hwnd: HWND,
+    app: &mut NotchApp,
+    query: String,
+) {
+    app.weather_searching = true;
+    app.dirty = true;
+    let lang = app.lang;
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let places = search_weather_places(&query, lang);
+        let _ = tx.send(BgEvent::WeatherPlacesLoaded(places));
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_weather_locate(bg_tx: &mpsc::Sender<BgEvent>, hwnd: HWND) {
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let coords = locate_once();
+        let _ = tx.send(BgEvent::WeatherLocated(coords));
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_pray_search(bg_tx: &mpsc::Sender<BgEvent>, hwnd: HWND, app: &mut NotchApp, query: String) {
+    let lang = app.lang;
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let places = search_weather_places(&query, lang);
+        let _ = tx.send(BgEvent::PrayPlacesLoaded(places));
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_pray_locate(bg_tx: &mpsc::Sender<BgEvent>, hwnd: HWND) {
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let coords = locate_once();
+        let _ = tx.send(BgEvent::PrayLocated(coords));
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_update_check(
+    bg_tx: &mpsc::Sender<BgEvent>,
+    hwnd: HWND,
+    app: &mut NotchApp,
+    notify_hud: bool,
+) {
+    if app.update_checking {
+        return;
+    }
+    app.update_checking = true;
+    app.dirty = true;
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let tag = fetch_latest_release_tag();
+        let _ = tx.send(BgEvent::UpdateCheckDone { tag, notify_hud });
+        post_wake(hwnd_raw);
+    });
 }
 
 fn refresh_display_cache(host: &mut WindowHost) {
@@ -1347,9 +1575,8 @@ unsafe extern "system" fn notch_wnd_proc(
         WM_WAKE => {
             drain_bg_events(host);
             refresh_display_cache(host);
-            if let Ok(mut app) = host.app.try_borrow_mut() {
-                app.copilot_hooks_on =
-                    AgentSetup::for_this_user().status("copilot") == AgentStatus::On;
+            if let Ok(app) = host.app.try_borrow() {
+                app.sync_online_config();
             }
             update_hotkeys(host);
             apply_capture_exclusion(host);
@@ -1361,9 +1588,26 @@ unsafe extern "system" fn notch_wnd_proc(
             render_and_present(host);
             LRESULT(0)
         }
+        WM_WTSSESSION_CHANGE => {
+            let code = wparam.0 as u32;
+            if code == WTS_SESSION_LOCK || code == WTS_SESSION_UNLOCK {
+                if let Ok(mut app) = host.app.try_borrow_mut() {
+                    app.session_locked = code == WTS_SESSION_LOCK;
+                    app.dirty = true;
+                }
+                render_and_present(host);
+            }
+            LRESULT(0)
+        }
         WM_TIMER => {
             if wparam.0 == TIMER_HOVER_WATCH {
                 sync_click_through(host);
+                if let Ok(mut app) = host.app.try_borrow_mut()
+                    && !app.needs_continuous_frames()
+                {
+                    let cursor_px = get_cursor_pos().map(|(x, y)| (f64::from(x), f64::from(y)));
+                    app.poll_idle_gaze(cursor_px);
+                }
                 return LRESULT(0);
             }
             refresh_display_cache(host);
@@ -1371,6 +1615,10 @@ unsafe extern "system" fn notch_wnd_proc(
             let Ok(mut app) = host.app.try_borrow_mut() else {
                 return LRESULT(0);
             };
+            if app.session_locked && !is_session_locked() {
+                app.session_locked = false;
+                app.dirty = true;
+            }
             let mon = app.store.data.settings.monitor.clone();
             let lang = app.lang;
             let fs = detect_fullscreen(hwnd, mon.as_deref(), lang);
@@ -1387,6 +1635,10 @@ unsafe extern "system" fn notch_wnd_proc(
             }
             app.poll_periodic(Some(&host.factories));
             app.update_clock(Some(&host.factories));
+            if !app.needs_continuous_frames() {
+                let cursor_px = get_cursor_pos().map(|(x, y)| (f64::from(x), f64::from(y)));
+                app.poll_idle_gaze(cursor_px);
+            }
             if app.focus.state == crate::state::FocusState::Running
                 || (app.expanded
                     && app.page == NotchPage::Media
@@ -1411,7 +1663,9 @@ unsafe extern "system" fn notch_wnd_proc(
             let id = wparam.0 as i32;
             match id {
                 HOTKEY_JUMP => {
-                    host.app.borrow_mut().on_jump_hotkey(Some(&host.factories));
+                    let mut app = host.app.borrow_mut();
+                    app.session_locked = false;
+                    app.on_jump_hotkey(Some(&host.factories));
                 }
                 HOTKEY_MIC => {
                     if let Some(ref audio) = host.app.borrow().audio_service {
@@ -1420,6 +1674,7 @@ unsafe extern "system" fn notch_wnd_proc(
                 }
                 HOTKEY_TOGGLE => {
                     let mut app = host.app.borrow_mut();
+                    app.session_locked = false;
                     if app.hidden_by_user {
                         app.hidden_by_user = false;
                     }
@@ -1459,6 +1714,10 @@ unsafe extern "system" fn notch_wnd_proc(
                 return LRESULT(0);
             };
             app.cursor_dip = (f64::from(x), f64::from(y));
+            if !app.needs_continuous_frames() {
+                let cursor_px = get_cursor_pos().map(|(cx, cy)| (f64::from(cx), f64::from(cy)));
+                app.poll_idle_gaze(cursor_px);
+            }
             if app.seeking
                 && let Some(pr) = host.hits.progress_rect
             {
@@ -1673,7 +1932,7 @@ unsafe extern "system" fn notch_wnd_proc(
                     Some('\r') => {
                         let q = app.weather_search_input.clone();
                         if !q.trim().is_empty() {
-                            app.search_weather(&q);
+                            spawn_weather_search(&host.bg_tx, hwnd, &mut app, q);
                         }
                     }
                     Some(c) if !c.is_control() && app.weather_search_input.chars().count() < 80 => {
@@ -1693,7 +1952,7 @@ unsafe extern "system" fn notch_wnd_proc(
                     Some('\r') => {
                         let q = app.pray_search_input.clone();
                         if !q.trim().is_empty() {
-                            app.search_pray_places(&q);
+                            spawn_pray_search(&host.bg_tx, hwnd, &mut app, q);
                         }
                     }
                     Some(c) if !c.is_control() && app.pray_search_input.chars().count() < 80 => {
@@ -1801,6 +2060,7 @@ unsafe extern "system" fn notch_wnd_proc(
             match cmd {
                 CMD_OPEN => {
                     let mut app = host.app.borrow_mut();
+                    app.session_locked = false;
                     app.hidden_by_user = false;
                     app.pinned_until = Some(Instant::now() + Duration::from_secs(10));
                     app.set_expanded(true, Some(&host.factories));
@@ -1816,29 +2076,8 @@ unsafe extern "system" fn notch_wnd_proc(
                 }
                 CMD_SETTINGS => open_settings_from_host(host),
                 CMD_UPDATES => {
-                    let tag = host.app.borrow_mut().check_updates_sync();
                     let mut app = host.app.borrow_mut();
-                    let s = app.lang.strings();
-                    let mut m = if let Some(t) = tag {
-                        if app.update_available.is_some() {
-                            let mut msg = HudMessage::new(Glyphs::BELL, s.hud_new_version);
-                            msg.value = Some(t);
-                            msg.duration_ms = 5000;
-                            msg
-                        } else {
-                            let mut msg = HudMessage::new("\u{E73E}", s.hud_up_to_date);
-                            msg.value = Some(env!("CARGO_PKG_VERSION").to_string());
-                            msg.duration_ms = 3000;
-                            msg
-                        }
-                    } else {
-                        let mut msg = HudMessage::new(Glyphs::BELL, s.hud_check_failed);
-                        msg.warning = true;
-                        msg.duration_ms = 3500;
-                        msg
-                    };
-                    m.kind = HudKind::Reminder;
-                    app.show_hud(m, Some(&host.factories));
+                    spawn_update_check(&host.bg_tx, host.hwnd, &mut app, true);
                 }
                 CMD_DEMO => {
                     let mut app = host.app.borrow_mut();
@@ -1879,13 +2118,21 @@ unsafe extern "system" fn notch_wnd_proc(
             LRESULT(0)
         }
         WM_DESTROY => {
-            host.app.borrow().stop_flag.store(true, Ordering::Relaxed);
-            if host.app.borrow().bench.is_none() {
-                host.app.borrow().store.save_now();
+            {
+                let app = host.app.borrow();
+                app.stop_flag.store(true, Ordering::Relaxed);
+                app.online_sync.1.notify_all();
+                if app.bench.is_none() {
+                    app.store.save_now();
+                }
             }
             remove_tray_icon(host);
-            // SAFETY: Revoking OLE drop target, clipboard listener, clearing GWLP_USERDATA, killing timer, unregistering hotkeys, and posting quit.
+            // SAFETY: Revoking OLE drop target, clipboard listener, session notifications, clearing GWLP_USERDATA, killing timer, unregistering hotkeys, and posting quit.
             unsafe {
+                if host.session_notif_reg {
+                    unregister_session_notifications(hwnd);
+                    host.session_notif_reg = false;
+                }
                 if host.clipboard_listening {
                     let _ = RemoveClipboardFormatListener(hwnd);
                     host.clipboard_listening = false;
@@ -1977,11 +2224,11 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
             HoverTarget::SettingsBtn => open_settings = true,
             HoverTarget::RefreshBtn => {
                 if app.page == NotchPage::Agenda {
-                    app.refresh_google_calendar_sync();
+                    spawn_calendar_refresh(&host.bg_tx, host.hwnd, &mut app);
                 } else if app.page == NotchPage::Tasks {
-                    app.refresh_google_tasks_sync();
+                    spawn_tasks_refresh(&host.bg_tx, host.hwnd, &mut app);
                 } else if app.page == NotchPage::Weather {
-                    app.refresh_weather_sync();
+                    spawn_weather_refresh(&host.bg_tx, host.hwnd, &mut app);
                 }
             }
             HoverTarget::SwitchPlayerBtn => {
@@ -2112,8 +2359,9 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
             HoverTarget::FocusSecondary => {
                 let settings = app.store.data.settings.clone();
                 if app.focus.is_break() {
-                    let (_, msg) = app.focus.skip_break(&settings);
-                    if let Some(m) = msg {
+                    let (_, notice) = app.focus.skip_break(&settings);
+                    if let Some(n) = notice {
+                        let m = crate::state::focus_notice_to_hud(n, &settings, app.lang);
                         app.show_hud(m, Some(&host.factories));
                     }
                 } else if let Some(dur) = app.focus.stop(&settings) {
@@ -2246,7 +2494,7 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
                 app.select_page(NotchPage::Notifications, Some(&host.factories));
             }
             HoverTarget::NotifItem(i) => {
-                if let Some(item) = app.notifications.get_mut(i) {
+                if let Some(item) = app.notifications.items.get_mut(i) {
                     item.unread = false;
                 }
             }
@@ -2272,20 +2520,11 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
             HoverTarget::WeatherSearchBtn => {
                 let q = app.weather_search_input.clone();
                 if !q.trim().is_empty() {
-                    app.search_weather(&q);
+                    spawn_weather_search(&host.bg_tx, host.hwnd, &mut app, q);
                 }
             }
             HoverTarget::WeatherLocateBtn => {
-                if let Some((lat, lon)) = locate_once() {
-                    app.store.data.settings.weather_latitude = Some(lat);
-                    app.store.data.settings.weather_longitude = Some(lon);
-                    app.store.data.settings.weather_place = Some(format!("{lat:.2}, {lon:.2}"));
-                    app.store.data.settings.weather_enabled = true;
-                    app.weather_picker_open = false;
-                    app.weather_places.clear();
-                    app.store.save_now();
-                    app.refresh_weather_sync();
-                }
+                spawn_weather_locate(&host.bg_tx, host.hwnd);
             }
             HoverTarget::WeatherPickPlace(i) => {
                 if let Some(p) = app.weather_places.get(i).cloned() {
@@ -2301,7 +2540,8 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
                     app.weather_places.clear();
                     app.weather_search_input.clear();
                     app.store.save_now();
-                    app.refresh_weather_sync();
+                    app.sync_online_config();
+                    spawn_weather_refresh(&host.bg_tx, host.hwnd, &mut app);
                 }
             }
             HoverTarget::WeatherClosePicker => {
@@ -2324,19 +2564,11 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
             HoverTarget::PraySearchBtn => {
                 let q = app.pray_search_input.clone();
                 if !q.trim().is_empty() {
-                    app.search_pray_places(&q);
+                    spawn_pray_search(&host.bg_tx, host.hwnd, &mut app, q);
                 }
             }
             HoverTarget::PrayLocateBtn => {
-                if let Some((lat, lon)) = locate_once() {
-                    app.store.data.settings.pray_latitude = Some(lat);
-                    app.store.data.settings.pray_longitude = Some(lon);
-                    app.store.data.settings.pray_place = Some(format!("{lat:.2}, {lon:.2}"));
-                    app.pray_picker_open = false;
-                    app.pray_places.clear();
-                    app.store.save_now();
-                    app.recompute_prayer_schedule();
-                }
+                spawn_pray_locate(&host.bg_tx, host.hwnd);
             }
             HoverTarget::PrayPickPlace(i) => {
                 if let Some(p) = app.pray_places.get(i).cloned() {
@@ -2946,17 +3178,17 @@ pub(crate) fn load_ico_from_bytes(ico: &[u8], target_size: u32) -> HICON {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct Vitrine {
-    track: VitrineTrack,
+struct Showcase {
+    track: ShowcaseTrack,
     lrc: String,
-    events: Vec<VitrineEvent>,
-    activity: VitrineActivity,
-    hud: VitrineHud,
+    events: Vec<ShowcaseEvent>,
+    activity: ShowcaseActivity,
+    hud: ShowcaseHud,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct VitrineTrack {
+struct ShowcaseTrack {
     title: String,
     artist: String,
     seconds: i64,
@@ -2965,7 +3197,7 @@ struct VitrineTrack {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct VitrineEvent {
+struct ShowcaseEvent {
     title: String,
     #[serde(rename = "In")]
     in_mins: i64,
@@ -2975,7 +3207,7 @@ struct VitrineEvent {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct VitrineActivity {
+struct ShowcaseActivity {
     title: String,
     text: String,
     progress: f64,
@@ -2983,16 +3215,16 @@ struct VitrineActivity {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct VitrineHud {
+struct ShowcaseHud {
     text: String,
     value: String,
     level: f64,
 }
 
-fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
+fn run_showcase_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
     let res = (|| -> Result<(), String> {
-        let raw = std::fs::read_to_string(dir.join("vitrine.json")).map_err(|e| e.to_string())?;
-        let vitrine: Vitrine =
+        let raw = std::fs::read_to_string(dir.join("showcase.json")).map_err(|e| e.to_string())?;
+        let showcase: Showcase =
             serde_json::from_str(raw.trim_start_matches('\u{FEFF}')).map_err(|e| e.to_string())?;
         let mut surf = D2dSurface::new(factories, 1600, 800, 2.0).map_err(|e| e.to_string())?;
 
@@ -3011,12 +3243,12 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
             Ok(())
         };
 
-        // 1. fechado-dormindo
+        // 1. closed-sleeping
         app.store.data.settings.companion_enabled = true;
         app.simulated_idle_secs = Some(1800.0);
         app.presence_state = 2;
         app.update_companion();
-        snap_shot(app, "fechado-dormindo")?;
+        snap_shot(app, "closed-sleeping")?;
 
         app.store.data.settings.companion_enabled = false;
         app.simulated_idle_secs = None;
@@ -3024,12 +3256,12 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
         app.update_companion();
         app.hide_news(Some(factories));
 
-        // 2. fechado-relogio
-        snap_shot(app, "fechado-relogio")?;
+        // 2. closed-clock
+        snap_shot(app, "closed-clock")?;
 
-        // 3. fechado-reuniao & aberto-agenda
+        // 3. closed-meeting & open-agenda
         let now = Local::now().naive_local();
-        let events: Vec<CalendarEvent> = vitrine
+        let events: Vec<CalendarEvent> = showcase
             .events
             .iter()
             .enumerate()
@@ -3040,56 +3272,56 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
                     start = start.date().and_hms_opt(start.hour(), m, 0).unwrap();
                 }
                 CalendarEvent {
-                    id: format!("vitrine-{i}"),
+                    id: format!("showcase-{i}"),
                     title: e.title.clone(),
                     start,
                     end: start + chrono::Duration::minutes(e.minutes),
                     all_day: false,
                     meeting_url: e.meeting_url.clone(),
-                    key: format!("vitrine-{i}"),
+                    key: format!("showcase-{i}"),
                 }
             })
             .collect();
         app.calendar_events = events.clone();
         app.update_clock(Some(factories));
-        snap_shot(app, "fechado-reuniao")?;
+        snap_shot(app, "closed-meeting")?;
 
         app.show_page("agenda", 300, Some(factories));
-        snap_shot(app, "aberto-agenda")?;
+        snap_shot(app, "open-agenda")?;
         app.set_expanded(false, Some(factories));
 
-        // 4. fechado-musica & aberto-musica
+        // 4. closed-media & open-media
         let cover_bytes = std::fs::read(dir.join("cover.png")).ok();
         let media = mochi_winrt::media::MediaState {
-            title: vitrine.track.title.clone(),
-            artist: vitrine.track.artist.clone(),
+            title: showcase.track.title.clone(),
+            artist: showcase.track.artist.clone(),
             source_app: String::new(),
             is_playing: true,
-            position_secs: vitrine.track.position as f64,
-            duration_secs: vitrine.track.seconds as f64,
+            position_secs: showcase.track.position as f64,
+            duration_secs: showcase.track.seconds as f64,
             position_updated_at: Instant::now(),
             playback_rate: 1.0,
             thumbnail_bytes: cover_bytes,
             thumbnail_id: 1,
         };
         app.apply_media_snapshot(Some(media), None, Some(factories));
-        app.set_lyrics(Lyrics::parse(&vitrine.lrc), Some(factories));
+        app.set_lyrics(Lyrics::parse(&showcase.lrc), Some(factories));
         app.snap_all_springs();
-        snap_shot(app, "fechado-musica")?;
+        snap_shot(app, "closed-media")?;
 
         app.show_page("media", 300, Some(factories));
-        snap_shot(app, "aberto-musica")?;
+        snap_shot(app, "open-media")?;
 
-        // 5. aberto-foco, aberto-agua, aberto-tarefas, aberto-prateleira
+        // 5. open-focus, open-water, open-tasks, open-shelf
         app.focus.start();
         app.show_page("focus", 300, Some(factories));
-        snap_shot(app, "aberto-foco")?;
+        snap_shot(app, "open-focus")?;
         app.show_page("water", 300, Some(factories));
-        snap_shot(app, "aberto-agua")?;
+        snap_shot(app, "open-water")?;
         app.show_page("tasks", 300, Some(factories));
-        snap_shot(app, "aberto-tarefas")?;
+        snap_shot(app, "open-tasks")?;
         app.show_page("shelf", 300, Some(factories));
-        snap_shot(app, "aberto-prateleira")?;
+        snap_shot(app, "open-shelf")?;
 
         app.win_notif_access = mochi_winrt::notifications::NotificationAccess::Allowed;
         app.push_notification(
@@ -3113,11 +3345,10 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
             false,
         );
         app.show_page("notifications", 300, Some(factories));
-        snap_shot(app, "aberto-notificacoes")?;
+        snap_shot(app, "open-notifications")?;
         app.notifications.clear();
-        app.seen_win_notif_ids.clear();
 
-        // 5c. aberto-clipboard
+        // 5c. open-clipboard
         app.capture_clipboard_payload(
             101,
             ClipboardPayload::Text("cargo test --workspace --all-targets".to_string()),
@@ -3137,11 +3368,11 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
             Some(factories),
         );
         app.show_page("clipboard", 300, Some(factories));
-        snap_shot(app, "aberto-clipboard")?;
+        snap_shot(app, "open-clipboard")?;
         app.clipboard_items.clear();
         app.store.data.clipboard.clear();
 
-        // 5d. aberto-weather
+        // 5d. open-weather
         app.store.data.settings.weather_enabled = true;
         app.store.data.settings.weather_place = Some("Jakarta, ID".to_string());
         app.store.data.settings.weather_latitude = Some(-6.2);
@@ -3208,81 +3439,81 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
             fetched_at: now,
         });
         app.show_page("weather", 300, Some(factories));
-        snap_shot(app, "aberto-weather")?;
+        snap_shot(app, "open-weather")?;
         app.weather_report = None;
         app.store.data.settings.weather_enabled = false;
         app.store.data.settings.weather_place = None;
 
-        // 5e. aberto-pray
+        // 5e. open-pray
         app.store.data.settings.pray_place = Some("Jakarta".to_string());
         app.store.data.settings.pray_latitude = Some(-6.2088);
         app.store.data.settings.pray_longitude = Some(106.8456);
         app.recompute_prayer_schedule();
         app.show_page("pray", 300, Some(factories));
-        snap_shot(app, "aberto-pray")?;
+        snap_shot(app, "open-pray")?;
         app.store.data.settings.pray_place = None;
 
-        // 6. fechado-foco
+        // 6. closed-focus
         app.calendar_events = events
             .into_iter()
             .filter(|e| (e.start - now) > chrono::Duration::minutes(15) || e.start < now)
             .collect();
         app.update_clock(Some(factories));
         app.set_expanded(false, Some(factories));
-        snap_shot(app, "fechado-foco")?;
+        snap_shot(app, "closed-focus")?;
 
-        // 7. fechado-volume
-        let mut hud_msg = HudMessage::new(Glyphs::VOLUME_2, vitrine.hud.text);
-        hud_msg.value = Some(vitrine.hud.value);
-        hud_msg.level = Some(vitrine.hud.level);
+        // 7. closed-volume
+        let mut hud_msg = HudMessage::new(Glyphs::VOLUME_2, showcase.hud.text);
+        hud_msg.value = Some(showcase.hud.value);
+        hud_msg.level = Some(showcase.hud.level);
         hud_msg.duration_ms = 60_000;
         app.show_hud(hud_msg, Some(factories));
-        snap_shot(app, "fechado-volume")?;
+        snap_shot(app, "closed-volume")?;
         app.hide_hud(Some(factories));
 
-        // 8. fechado-atividade & aberto-atividade
+        // 8. closed-activity & open-activity
         let settings = app.store.data.settings.clone();
         app.focus.stop(&settings);
         let act_json = serde_json::json!({
             "op": "set",
-            "id": "vitrine",
-            "title": vitrine.activity.title,
-            "text": vitrine.activity.text,
-            "progress": vitrine.activity.progress,
+            "id": "showcase",
+            "title": showcase.activity.title,
+            "text": showcase.activity.text,
+            "progress": showcase.activity.progress,
         })
         .to_string();
         app.handle_activity(&act_json, Some(factories));
         app.hide_hud(Some(factories));
-        snap_shot(app, "fechado-atividade")?;
+        snap_shot(app, "closed-activity")?;
 
         app.show_page("media", 300, Some(factories));
-        snap_shot(app, "aberto-atividade")?;
+        snap_shot(app, "open-activity")?;
 
-        // 9. fechado-agente-aviso & fechado-agente & aberto-copilot
+        // 9. closed-agent-alert & closed-agent & open-copilot
         app.set_expanded(false, Some(factories));
-        app.handle_activity(r#"{"op":"end","id":"vitrine"}"#, Some(factories));
+        app.handle_activity(r#"{"op":"end","id":"showcase"}"#, Some(factories));
         app.handle_activity(
-            r#"{"op":"set","id":"vitrine-copilot","title":"Visual Studio Code · mochi","text":"Using run_in_terminal","icon":"copilot","state":"running","phrase":"working","window":{"handle":1,"pid":1}}"#,
+            r#"{"op":"set","id":"showcase-copilot","title":"Visual Studio Code · mochi","text":"Using run_in_terminal","icon":"copilot","state":"running","phrase":"working","window":{"handle":1,"pid":1}}"#,
             Some(factories),
         );
         app.copilot_hooks_on = true;
         app.agent_pulse_phase = 1.1;
         app.hide_hud(Some(factories));
-        snap_shot(app, "fechado-copilot")?;
+        snap_shot(app, "closed-copilot")?;
         app.show_page("media", 300, Some(factories));
-        snap_shot(app, "aberto-copilot")?;
+        snap_shot(app, "open-copilot")?;
         app.set_expanded(false, Some(factories));
-        app.handle_activity(r#"{"op":"end","id":"vitrine-copilot"}"#, Some(factories));
+        app.handle_activity(r#"{"op":"end","id":"showcase-copilot"}"#, Some(factories));
         app.handle_activity(
-            r#"{"op":"set","id":"vitrine-agent","title":"Windows Terminal · mochi","icon":"claude","state":"done","phrase":"done"}"#,
+            r#"{"op":"set","id":"showcase-agent","title":"Windows Terminal · mochi","icon":"claude","state":"done","phrase":"done"}"#,
             Some(factories),
         );
-        snap_shot(app, "fechado-agente-aviso")?;
+        snap_shot(app, "closed-agent-alert")?;
         app.hide_hud(Some(factories));
-        snap_shot(app, "fechado-agente")?;
+        snap_shot(app, "closed-agent")?;
 
-        // 10. fechado-fora
-        app.handle_activity(r#"{"op":"end","id":"vitrine-agent"}"#, Some(factories));
+        // 10. closed-away
+        app.handle_activity(r#"{"op":"end","id":"showcase-agent"}"#, Some(factories));
         let s = app.lang.strings();
         let report = AwayReport {
             duration: Duration::from_secs(42 * 60),
@@ -3306,8 +3537,8 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
         };
         app.show_news(report, Some(factories));
         app.news_flight_t = 1.0;
-        app.news_raven.land();
-        snap_shot(app, "fechado-fora")?;
+        app.news_companion.land();
+        snap_shot(app, "closed-away")?;
 
         // 11. Drag-to-notch approach & active drop zone
         app.hide_news(Some(factories));
@@ -3316,15 +3547,15 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
         app.snap_all_springs();
         app.drag_approach = 0.9;
         app.drag_phase = 0.8;
-        snap_shot(app, "fechado-drag-aproximando")?;
+        snap_shot(app, "closed-drag-approach")?;
 
         app.on_drag_enter(3, (420.0, 110.0), Some(factories));
         app.snap_all_springs();
         app.drag_anim = 1.0;
         app.drag_phase = 1.2;
-        snap_shot(app, "aberto-prateleira-drop")?;
+        snap_shot(app, "open-shelf-drop")?;
 
-        let tmp_drop = std::env::temp_dir().join("mochi-vitrine-drop.txt");
+        let tmp_drop = std::env::temp_dir().join("mochi-showcase-drop.txt");
         let _ = std::fs::write(&tmp_drop, b"mochi");
         app.on_drag_drop(
             &[tmp_drop.to_string_lossy().into_owned()],
@@ -3336,7 +3567,7 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
         app.drop_burst_t = 0.28;
         app.shelf_flash_t = 0.72;
         app.drop_celebrate_count = 3;
-        snap_shot(app, "aberto-prateleira-drop-burst")?;
+        snap_shot(app, "open-shelf-drop-burst")?;
         app.clear_shelf();
         app.undo = None;
         app.drop_burst_t = 1.0;
@@ -3346,7 +3577,7 @@ fn run_vitrine_shots(app: &mut NotchApp, factories: &D2dFactories, dir: &Path) {
 
     let done_txt = match res {
         Ok(()) => "ok".to_string(),
-        Err(e) => format!("erro: {e}"),
+        Err(e) => format!("error: {e}"),
     };
     let _ = std::fs::write(dir.join("done.txt"), done_txt);
 }

@@ -506,7 +506,7 @@ impl D2dFactories {
     pub fn extract_accent_from_bytes(&self, bytes: &[u8]) -> Color {
         // SAFETY: Scaling image to 12x12 PBGRA via WIC and passing to mochi_media.
         let scaled = unsafe {
-            (|| -> Option<Vec<i64>> {
+            (|| -> Option<Vec<u8>> {
                 let stream = self.wic.CreateStream().ok()?;
                 stream.InitializeFromMemory(bytes).ok()?;
                 let decoder = self
@@ -534,20 +534,11 @@ impl D2dFactories {
                 .ok()?;
                 let mut bgra = vec![0u8; 12 * 12 * 4];
                 conv.CopyPixels(std::ptr::null(), 12 * 4, &mut bgra).ok()?;
-                Some(bgra.into_iter().map(i64::from).collect())
+                Some(bgra)
             })()
         };
-        let res = mochi_media::port::extract_accent_color(scaled).ok();
-        if let Some(v) = res
-            && let (Some(r), Some(g), Some(b)) = (
-                v.get("R").and_then(|x| x.as_u64()),
-                v.get("G").and_then(|x| x.as_u64()),
-                v.get("B").and_then(|x| x.as_u64()),
-            )
-        {
-            return Color::rgb(r as u8, g as u8, b as u8);
-        }
-        crate::theme::DEFAULT_ACCENT
+        let rgb = mochi_media::port::extract_accent_color(scaled.as_deref().unwrap_or(&[]));
+        Color::rgb(rgb.r, rgb.g, rgb.b)
     }
 }
 

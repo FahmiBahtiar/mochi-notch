@@ -1,7 +1,7 @@
 use chrono::{Datelike, Local, NaiveDate, Timelike};
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
+use crate::features::companion::render::draw_companion_sprite;
 use crate::features::widgets::render::{draw_icon_button, draw_pill_button};
 use crate::render::{HitMap, RectF};
 use crate::state::{HoverTarget, NotchApp};
@@ -289,10 +289,10 @@ pub(crate) fn draw_agenda_page(
             (s.agenda_free, None)
         };
         let cy = list_y + (list_h - if btn.is_some() { 96.0 } else { 64.0 }) * 0.5;
-        draw_raven_sprite(
+        draw_companion_sprite(
             factories,
             surf,
-            &app.idle_raven,
+            &app.idle_companion,
             rx + (rw - 34.0) / 2.0,
             cy,
             34.0,

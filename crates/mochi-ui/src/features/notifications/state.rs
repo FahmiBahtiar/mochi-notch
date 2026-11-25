@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-pub use mochi_winrt::mochi_notifications::port::NotificationItem;
+pub use mochi_winrt::mochi_notifications::port::{NotificationCenter, NotificationItem};
 use mochi_winrt::notifications::{
     NotificationAccess, NotificationEvent, clear_windows_notifications, remove_windows_notification,
 };
@@ -22,27 +22,12 @@ impl NotchApp {
         warning: bool,
         unread: bool,
     ) {
-        if let Some(wid) = win_id
-            && !self.seen_win_notif_ids.insert(wid)
+        if !self
+            .notifications
+            .push(win_id, source, glyph, title, body, at, warning, unread)
         {
             return;
         }
-        self.next_notif_id += 1;
-        self.notifications.insert(
-            0,
-            NotificationItem {
-                id: self.next_notif_id,
-                win_id,
-                source,
-                glyph,
-                title,
-                body,
-                at,
-                unread,
-                warning,
-            },
-        );
-        self.notifications.truncate(50);
         if unread && !self.reduce_motion {
             self.notif_pulse_t = 1.0;
         }
@@ -74,7 +59,7 @@ impl NotchApp {
                 }
             }
             NotificationEvent::Added(sn) => {
-                let is_new = !self.seen_win_notif_ids.contains(&sn.win_id);
+                let is_new = !self.notifications.is_seen(sn.win_id);
                 self.push_notification(
                     Some(sn.win_id),
                     sn.app_name.clone(),
@@ -102,10 +87,7 @@ impl NotchApp {
                 }
             }
             NotificationEvent::Removed(win_id) => {
-                self.seen_win_notif_ids.remove(&win_id);
-                let before = self.notifications.len();
-                self.notifications.retain(|n| n.win_id != Some(win_id));
-                if self.notifications.len() != before {
+                if self.notifications.remove_by_win_id(win_id) {
                     self.dirty = true;
                 }
             }
@@ -113,21 +95,17 @@ impl NotchApp {
     }
 
     pub fn unread_notifications_count(&self) -> usize {
-        self.notifications.iter().filter(|n| n.unread).count()
+        self.notifications.unread_count()
     }
 
     pub fn mark_all_notifications_read(&mut self) {
-        for n in &mut self.notifications {
-            n.unread = false;
-        }
+        self.notifications.mark_all_read();
         self.dirty = true;
     }
 
     pub fn dismiss_notification(&mut self, idx: usize) {
-        if idx < self.notifications.len() {
-            let item = self.notifications.remove(idx);
+        if let Some(item) = self.notifications.remove_at(idx) {
             if let Some(wid) = item.win_id {
-                self.seen_win_notif_ids.remove(&wid);
                 remove_windows_notification(wid);
             }
             self.dirty = true;
@@ -135,9 +113,7 @@ impl NotchApp {
     }
 
     pub fn clear_notifications(&mut self) {
-        let had_win = self.notifications.iter().any(|n| n.win_id.is_some());
-        self.notifications.clear();
-        self.seen_win_notif_ids.clear();
+        let had_win = self.notifications.clear();
         self.notifications_scroll = 0.0;
         if had_win && self.win_notif_access == NotificationAccess::Allowed {
             clear_windows_notifications();

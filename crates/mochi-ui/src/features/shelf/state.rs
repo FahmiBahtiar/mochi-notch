@@ -140,7 +140,7 @@ impl NotchApp {
             };
         }
         self.drop_hinting = true;
-        self.drop_raven.perch();
+        self.drop_companion.perch();
         self.select_page(NotchPage::Shelf, factories);
         self.set_expanded(true, factories);
         self.dirty = true;
@@ -157,7 +157,7 @@ impl NotchApp {
         self.drag_approaching = false;
         self.drag_approach_target = 0.0;
         self.drag_cursor_dip = None;
-        self.drop_raven.stop();
+        self.drop_companion.stop();
         if self.drag_opened_notch {
             self.drag_opened_notch = false;
             self.drag_prev_page = None;
@@ -201,7 +201,7 @@ impl NotchApp {
         };
         self.shelf_flash_count = added;
         self.drop_celebrate_count = added.max(total_dropped.min(1));
-        self.drop_raven.nod();
+        self.drop_companion.nod();
         self.select_page(NotchPage::Shelf, factories);
         self.pinned_until = Some(Instant::now() + Duration::from_secs(5));
         self.set_expanded(true, factories);

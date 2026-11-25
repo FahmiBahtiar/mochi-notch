@@ -1,9 +1,7 @@
-use serde_json::Value;
-
 use mochi_winrt::mochi_gaze;
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::state::RavenAnimator;
+use crate::features::companion::state::CompanionAnimator;
 use crate::state::NotchApp;
 use crate::theme::{NOTCH_BLACK, PURE_EYE_AMBER, PURE_EYE_CORAL, PURE_EYE_WHITE, TEXT_PRIMARY};
 
@@ -17,7 +15,7 @@ pub(crate) fn draw_robo_visor(
 ) {
     let shift_x = app.visor_gaze.norm_x * 14.0;
     let shift_y = app.visor_gaze.norm_y * 3.5;
-    let Ok(eyes) = mochi_gaze::port::compute_robo_visor_eyes(
+    let eyes = mochi_gaze::port::compute_robo_visor_eyes(
         f64::from(w),
         f64::from(h),
         shift_x,
@@ -26,20 +24,14 @@ pub(crate) fn draw_robo_visor(
         app.visor_gaze.scale_y,
         app.visor_sleeping,
         app.visor_sleeping,
-    ) else {
-        return;
-    };
-    let op = if app.visor_sleeping { 0.55 } else { 1.0 };
-    let col = PURE_EYE_WHITE.with_alpha(op);
+    );
+    let col = PURE_EYE_WHITE.with_alpha(eyes.opacity as f32);
 
-    for key in ["Left", "Right"] {
-        let Some(r) = eyes.get(key) else {
-            continue;
-        };
-        let raw_x = notch_x + r.get("X").and_then(Value::as_f64).unwrap_or(0.0) as f32;
-        let raw_y = r.get("Y").and_then(Value::as_f64).unwrap_or(0.0) as f32;
-        let raw_w = r.get("Width").and_then(Value::as_f64).unwrap_or(8.0) as f32;
-        let raw_h = r.get("Height").and_then(Value::as_f64).unwrap_or(14.5) as f32;
+    for r in [eyes.left, eyes.right] {
+        let raw_x = notch_x + r.x as f32;
+        let raw_y = r.y as f32;
+        let raw_w = r.width as f32;
+        let raw_h = r.height as f32;
 
         let ew = raw_w * 1.45;
         let eh = if app.visor_sleeping {
@@ -58,10 +50,10 @@ pub(crate) fn draw_robo_visor(
     }
 }
 
-pub(crate) fn draw_raven_sprite(
+pub(crate) fn draw_companion_sprite(
     factories: &D2dFactories,
     surf: &mut D2dSurface,
-    anim: &RavenAnimator,
+    anim: &CompanionAnimator,
     x: f32,
     y: f32,
     size: f32,

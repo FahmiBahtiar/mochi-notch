@@ -1,22 +1,22 @@
-use mochi_winrt::weather::{fetch_weather, search_weather_places};
+use mochi_winrt::weather::{WeatherPlace, WeatherReport};
 
+use crate::d2d::D2dFactories;
 use crate::state::NotchApp;
 
 impl NotchApp {
-    pub fn refresh_weather_sync(&mut self) {
-        if let (Some(lat), Some(lon)) = (
-            self.store.data.settings.weather_latitude,
-            self.store.data.settings.weather_longitude,
-        ) {
-            self.weather_report = fetch_weather(lat, lon, self.lang);
-            self.update_targets(None);
-            self.dirty = true;
-        }
+    pub fn apply_weather_report(
+        &mut self,
+        report: Option<WeatherReport>,
+        factories: Option<&D2dFactories>,
+    ) {
+        self.weather_report = report;
+        self.update_targets(factories);
+        self.dirty = true;
     }
 
-    pub fn search_weather(&mut self, query: &str) {
-        self.weather_searching = true;
-        self.weather_places = search_weather_places(query, self.lang);
+    pub fn apply_weather_places(&mut self, places: Vec<WeatherPlace>) {
         self.weather_searching = false;
+        self.weather_places = places;
+        self.dirty = true;
     }
 }

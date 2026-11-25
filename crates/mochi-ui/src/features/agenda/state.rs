@@ -1,9 +1,6 @@
-use std::sync::Arc;
-
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime, Timelike};
 
-use mochi_winrt::calendar::{CalendarEvent, fetch_calendars_and_events};
-use mochi_winrt::google::GoogleAuth;
+use mochi_winrt::calendar::CalendarEvent;
 use mochi_winrt::strings::{fmt1, fmt2};
 
 use crate::d2d::{D2dFactories, FontKind};
@@ -239,31 +236,5 @@ impl NotchApp {
                 }
             })
             .collect()
-    }
-
-    pub fn refresh_google_calendar_sync(&mut self) {
-        if self.calendar_fetching {
-            return;
-        }
-        self.calendar_fetching = true;
-        let auth = Arc::clone(&self.google_auth);
-        let ids = self.store.data.settings.calendar_ids.clone();
-        if let Ok(mut guard) = auth.lock()
-            && guard.is_signed_in()
-            && guard.has_scopes(&[GoogleAuth::CALENDAR_LIST_SCOPE, GoogleAuth::EVENTS_SCOPE])
-        {
-            match fetch_calendars_and_events(&mut guard, ids.as_deref()) {
-                Ok((cals, evs)) => {
-                    self.calendars = cals;
-                    self.calendar_events = evs;
-                    self.calendar_last_fetched = Some(Local::now().naive_local());
-                    self.calendar_error = None;
-                }
-                Err(e) => {
-                    self.calendar_error = Some(e);
-                }
-            }
-        }
-        self.calendar_fetching = false;
     }
 }

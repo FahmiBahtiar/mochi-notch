@@ -8,8 +8,7 @@ publish.workspace = true
 description = "Daily water intake tracker and reminder logic for Mochi"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+mochi-store = { path = "../mochi-store" }
 
 [lints]
 workspace = true

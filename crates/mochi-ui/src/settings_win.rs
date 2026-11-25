@@ -24,12 +24,16 @@ use windows_core::PCWSTR;
 use mochi_winrt::agent_setup::{
     AgentSetup, AgentStatus, UserPath, copy_text_to_clipboard, diagnostics_summary,
 };
+use mochi_winrt::calendar::{CalendarEvent, CalendarInfo, fetch_calendars_and_events};
 use mochi_winrt::google::GoogleAuth;
 use mochi_winrt::location::locate_once;
 use mochi_winrt::monitors::Monitors;
 use mochi_winrt::native::{Autostart, to_wide};
 use mochi_winrt::paths::AppPaths;
 use mochi_winrt::strings::{Language, fmt1};
+use mochi_winrt::tasks::{RemoteTask, TaskListInfo, fetch_google_task_lists, fetch_google_tasks};
+use mochi_winrt::updates::fetch_latest_release_tag;
+use mochi_winrt::weather::{WeatherPlace, WeatherReport, fetch_weather, search_weather_places};
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
 use crate::render::RectF;
@@ -42,8 +46,79 @@ use crate::theme::{
 use crate::window::load_ico_from_bytes;
 
 const WM_GOOGLE_DONE: u32 = WM_APP + 10;
+const WM_SETTINGS_ASYNC: u32 = WM_APP + 11;
 
 type GoogleOAuthResult = Result<(serde_json::Value, Vec<&'static str>, bool), String>;
+
+enum SettingsAsyncResult {
+    UpdatesChecked(Option<String>),
+    WeatherSearched(Vec<WeatherPlace>),
+    WeatherLocated(Option<(f64, f64)>),
+    WeatherFetched(Option<WeatherReport>),
+    CalendarSynced(Result<(Vec<CalendarInfo>, Vec<CalendarEvent>), String>),
+    TasksSynced(Result<(Vec<TaskListInfo>, String, Vec<RemoteTask>), String>),
+}
+
+#[derive(Debug, Clone, Default)]
+struct CachedGoogleStatus {
+    configured: bool,
+    signed_in: bool,
+    has_cal: bool,
+    has_tasks: bool,
+    email: String,
+}
+
+#[derive(Debug, Clone)]
+struct CachedAgentStatus {
+    copilot: AgentStatus,
+    claude: AgentStatus,
+    cursor: AgentStatus,
+    codex: AgentStatus,
+    on_path: bool,
+}
+
+impl CachedAgentStatus {
+    fn load() -> Self {
+        let setup = AgentSetup::for_this_user();
+        let cli_dir = AgentSetup::cli_dir();
+        Self {
+            copilot: setup.status("copilot"),
+            claude: setup.status("claude"),
+            cursor: setup.status("cursor"),
+            codex: setup.status("codex"),
+            on_path: AgentSetup::has_cli() && UserPath::contains(&cli_dir),
+        }
+    }
+}
+
+fn load_google_status(app: &NotchApp, reload_client: bool) -> CachedGoogleStatus {
+    app.google_auth
+        .lock()
+        .map(|mut g| {
+            let configured = if reload_client {
+                g.reload_client()
+            } else {
+                g.is_configured()
+            };
+            let signed_in = g.is_signed_in();
+            let has_cal = signed_in
+                && g.has_scopes(&[GoogleAuth::CALENDAR_LIST_SCOPE, GoogleAuth::EVENTS_SCOPE]);
+            let has_tasks = signed_in && g.has_scopes(&[GoogleAuth::TASKS_SCOPE]);
+            let email = g
+                .credential
+                .as_ref()
+                .map(|c| c.email.clone())
+                .unwrap_or_default();
+            CachedGoogleStatus {
+                configured,
+                signed_in,
+                has_cal,
+                has_tasks,
+                email,
+            }
+        })
+        .unwrap_or_default()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SettingAction {
@@ -126,6 +201,10 @@ struct SettingsState {
     google_rx: Option<mpsc::Receiver<GoogleOAuthResult>>,
     google_cancel: Option<Arc<AtomicBool>>,
     google_status: Option<(String, bool)>,
+    async_tx: mpsc::Sender<SettingsAsyncResult>,
+    async_rx: mpsc::Receiver<SettingsAsyncResult>,
+    cached_google: CachedGoogleStatus,
+    cached_agents: CachedAgentStatus,
     icon_big: HICON,
     icon_small: HICON,
     on_changed: Rc<dyn Fn()>,
@@ -185,6 +264,12 @@ pub fn open_settings_window(
     };
     let icon_big = load_ico_from_bytes(MOCHI_ICO, 32);
     let icon_small = load_ico_from_bytes(MOCHI_ICO, 16);
+    let (async_tx, async_rx) = mpsc::channel();
+    let cached_google = {
+        let a = app.borrow();
+        load_google_status(&a, true)
+    };
+    let cached_agents = CachedAgentStatus::load();
     let state = Box::new(SettingsState {
         app,
         factories,
@@ -202,6 +287,10 @@ pub fn open_settings_window(
         google_rx: None,
         google_cancel: None,
         google_status: None,
+        async_tx,
+        async_rx,
+        cached_google,
+        cached_agents,
         icon_big,
         icon_small,
         on_changed,
@@ -413,7 +502,7 @@ unsafe extern "system" fn settings_wnd_proc(
                     }
                     Some('\r') => {
                         let q = st.weather_query.clone();
-                        st.app.borrow_mut().search_weather(&q);
+                        spawn_settings_weather_search(st, q);
                     }
                     Some(c) if !c.is_control() && st.weather_query.chars().count() < 80 => {
                         st.weather_query.push(c);
@@ -468,10 +557,11 @@ unsafe extern "system" fn settings_wnd_proc(
                                 } else {
                                     Some((lang.strings().google_some_unchecked.to_string(), true))
                                 };
+                                st.cached_google = load_google_status(&app, false);
                                 drop(app);
-                                st.app.borrow_mut().refresh_google_calendar_sync();
+                                spawn_settings_calendar_refresh(st);
                                 if enable_tasks {
-                                    st.app.borrow_mut().refresh_google_tasks_sync();
+                                    spawn_settings_tasks_refresh(st);
                                 }
                                 (st.on_changed)();
                             }
@@ -486,6 +576,75 @@ unsafe extern "system" fn settings_wnd_proc(
                 }
             }
             // SAFETY: Requesting repaint after Google OAuth completes.
+            unsafe {
+                let _ = InvalidateRect(Some(hwnd), None, false);
+            }
+            LRESULT(0)
+        }
+        WM_SETTINGS_ASYNC => {
+            let mut notify_host = false;
+            while let Ok(res) = st.async_rx.try_recv() {
+                match res {
+                    SettingsAsyncResult::UpdatesChecked(tag) => {
+                        st.app.borrow_mut().apply_update_tag(tag);
+                        notify_host = true;
+                    }
+                    SettingsAsyncResult::WeatherSearched(places) => {
+                        st.app.borrow_mut().apply_weather_places(places);
+                    }
+                    SettingsAsyncResult::WeatherLocated(coords) => {
+                        if let Some((lat, lon)) = coords {
+                            {
+                                let mut app = st.app.borrow_mut();
+                                app.store.data.settings.weather_latitude = Some(lat);
+                                app.store.data.settings.weather_longitude = Some(lon);
+                                app.store.data.settings.weather_place =
+                                    Some(format!("{lat:.2}, {lon:.2}"));
+                                app.store.data.settings.weather_enabled = true;
+                                app.store.save_now();
+                            }
+                            spawn_settings_weather_refresh(st);
+                            notify_host = true;
+                        }
+                    }
+                    SettingsAsyncResult::WeatherFetched(rep) => {
+                        st.app.borrow_mut().apply_weather_report(rep, None);
+                        notify_host = true;
+                    }
+                    SettingsAsyncResult::CalendarSynced(res) => {
+                        let mut app = st.app.borrow_mut();
+                        app.calendar_fetching = false;
+                        match res {
+                            Ok((cals, evs)) => {
+                                app.calendars = cals;
+                                app.calendar_events = evs;
+                                app.calendar_last_fetched =
+                                    Some(chrono::Local::now().naive_local());
+                                app.calendar_error = None;
+                            }
+                            Err(e) => app.calendar_error = Some(e),
+                        }
+                        app.dirty = true;
+                        notify_host = true;
+                    }
+                    SettingsAsyncResult::TasksSynced(res) => {
+                        let mut app = st.app.borrow_mut();
+                        app.tasks_syncing = false;
+                        match res {
+                            Ok((lists, lid, remote)) => {
+                                app.apply_remote_tasks_snapshot(lists, lid, &remote);
+                            }
+                            Err(e) => app.tasks_error = Some(e),
+                        }
+                        app.dirty = true;
+                        notify_host = true;
+                    }
+                }
+            }
+            if notify_host {
+                (st.on_changed)();
+            }
+            // SAFETY: Requesting repaint after async settings work completes.
             unsafe {
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
@@ -596,7 +755,9 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                     !app.store.data.settings.use_artwork_accent;
             }
             SettingAction::CheckUpdatesNow => {
-                app.check_updates_sync();
+                drop(app);
+                spawn_settings_update_check(st);
+                return;
             }
             SettingAction::OpenReleases => {
                 NotchApp::open_external_url(
@@ -608,15 +769,21 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 app.store.data.settings.lyrics_enabled = !app.store.data.settings.lyrics_enabled;
             }
             SettingAction::GoogleConnectOrDisconnect => {
-                let signed_in = app.google_auth.lock().is_ok_and(|g| g.is_signed_in());
+                let signed_in = st.cached_google.signed_in;
                 if signed_in {
-                    if let Ok(mut g) = app.google_auth.lock() {
-                        g.sign_out();
+                    let revoke_tok = app
+                        .google_auth
+                        .lock()
+                        .ok()
+                        .and_then(|mut g| g.sign_out_local());
+                    if let Some(tok) = revoke_tok {
+                        std::thread::spawn(move || GoogleAuth::revoke_refresh_token(&tok));
                     }
                     app.calendars.clear();
                     app.calendar_events.clear();
                     app.store.data.settings.tasks_sync_enabled = false;
                     st.google_status = None;
+                    st.cached_google = load_google_status(&app, false);
                 } else {
                     drop(app);
                     start_google_oauth(
@@ -654,10 +821,7 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                     !app.store.data.settings.calendar_in_compact;
             }
             SettingAction::TasksAllowOrToggle => {
-                let has_tasks = app
-                    .google_auth
-                    .lock()
-                    .is_ok_and(|g| g.has_scopes(&[GoogleAuth::TASKS_SCOPE]));
+                let has_tasks = st.cached_google.has_tasks;
                 if !has_tasks {
                     drop(app);
                     start_google_oauth(st, vec![GoogleAuth::TASKS_SCOPE], true);
@@ -665,30 +829,37 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 }
                 app.store.data.settings.tasks_sync_enabled =
                     !app.store.data.settings.tasks_sync_enabled;
-                if app.store.data.settings.tasks_sync_enabled {
-                    app.refresh_google_tasks_sync();
+                let should_sync = app.store.data.settings.tasks_sync_enabled;
+                app.store.save_now();
+                drop(app);
+                if should_sync {
+                    spawn_settings_tasks_refresh(st);
                 }
+                (st.on_changed)();
+                return;
             }
             SettingAction::ToggleWeather => {
                 app.store.data.settings.weather_enabled = !app.store.data.settings.weather_enabled;
-                if app.store.data.settings.weather_enabled {
-                    app.refresh_weather_sync();
+                let should_fetch = app.store.data.settings.weather_enabled;
+                app.store.save_now();
+                drop(app);
+                if should_fetch {
+                    spawn_settings_weather_refresh(st);
                 }
+                (st.on_changed)();
+                return;
             }
             SettingAction::FocusWeatherSearch => changed = false,
             SettingAction::SearchWeather => {
                 let q = st.weather_query.clone();
-                app.search_weather(&q);
-                changed = false;
+                drop(app);
+                spawn_settings_weather_search(st, q);
+                return;
             }
             SettingAction::LocateWeather => {
-                if let Some((lat, lon)) = locate_once() {
-                    app.store.data.settings.weather_latitude = Some(lat);
-                    app.store.data.settings.weather_longitude = Some(lon);
-                    app.store.data.settings.weather_place = Some(format!("{lat:.2}, {lon:.2}"));
-                    app.store.data.settings.weather_enabled = true;
-                    app.refresh_weather_sync();
-                }
+                drop(app);
+                spawn_settings_weather_locate(st);
+                return;
             }
             SettingAction::PickWeatherPlace(idx) => {
                 if let Some(p) = app.weather_places.get(idx).cloned() {
@@ -701,7 +872,11 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                     });
                     app.store.data.settings.weather_enabled = true;
                     app.weather_places.clear();
-                    app.refresh_weather_sync();
+                    app.store.save_now();
+                    drop(app);
+                    spawn_settings_weather_refresh(st);
+                    (st.on_changed)();
+                    return;
                 }
             }
             SettingAction::ToggleRainAlerts => {
@@ -801,7 +976,7 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 if cur != AgentStatus::OnByPlugin {
                     let next = cur != AgentStatus::On;
                     if setup.set(agent, next).is_ok()
-                        && agent == "codex"
+                        && matches!(agent, "codex" | "claude")
                         && next
                         && AgentSetup::has_cli()
                     {
@@ -816,6 +991,7 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                         app.copilot_hooks_on = setup.status("copilot") == AgentStatus::On;
                     }
                 }
+                st.cached_agents = CachedAgentStatus::load();
                 changed = false;
             }
             SettingAction::ToggleCliPath => {
@@ -823,6 +999,7 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                     let dir = AgentSetup::cli_dir();
                     UserPath::set(&dir, !UserPath::contains(&dir));
                 }
+                st.cached_agents = CachedAgentStatus::load();
                 changed = false;
             }
             SettingAction::OpenGoogleDataFolder | SettingAction::OpenDataFolder => {
@@ -838,7 +1015,7 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 changed = false;
             }
             SettingAction::CopyDiagnostics => {
-                let g_status = if app.google_auth.lock().is_ok_and(|g| g.is_signed_in()) {
+                let g_status = if st.cached_google.signed_in {
                     "connected"
                 } else {
                     "disconnected"
@@ -905,6 +1082,153 @@ fn start_google_oauth(st: &mut SettingsState, wanted: Vec<&'static str>, enable_
             st.google_status = Some((format!("{err} ({})", dir.display()), true));
         }
     }
+}
+
+fn post_settings_async(hwnd_raw: usize) {
+    // SAFETY: Posting WM_SETTINGS_ASYNC to Settings window from a background worker thread.
+    unsafe {
+        let _ = PostMessageW(
+            Some(HWND(hwnd_raw as *mut _)),
+            WM_SETTINGS_ASYNC,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
+}
+
+fn spawn_settings_update_check(st: &SettingsState) {
+    {
+        let mut app = st.app.borrow_mut();
+        if app.update_checking {
+            return;
+        }
+        app.update_checking = true;
+    }
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let tag = fetch_latest_release_tag();
+        let _ = tx.send(SettingsAsyncResult::UpdatesChecked(tag));
+        post_settings_async(hwnd_raw);
+    });
+}
+
+fn spawn_settings_weather_search(st: &SettingsState, query: String) {
+    if query.trim().is_empty() {
+        return;
+    }
+    let lang = {
+        let mut app = st.app.borrow_mut();
+        app.weather_searching = true;
+        app.lang
+    };
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let places = search_weather_places(&query, lang);
+        let _ = tx.send(SettingsAsyncResult::WeatherSearched(places));
+        post_settings_async(hwnd_raw);
+    });
+}
+
+fn spawn_settings_weather_locate(st: &SettingsState) {
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let coords = locate_once();
+        let _ = tx.send(SettingsAsyncResult::WeatherLocated(coords));
+        post_settings_async(hwnd_raw);
+    });
+}
+
+fn spawn_settings_weather_refresh(st: &SettingsState) {
+    let (coords, lang) = {
+        let app = st.app.borrow();
+        (
+            app.store
+                .data
+                .settings
+                .weather_latitude
+                .zip(app.store.data.settings.weather_longitude),
+            app.lang,
+        )
+    };
+    let Some((lat, lon)) = coords else {
+        return;
+    };
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let rep = fetch_weather(lat, lon, lang);
+        let _ = tx.send(SettingsAsyncResult::WeatherFetched(rep));
+        post_settings_async(hwnd_raw);
+    });
+}
+
+fn spawn_settings_calendar_refresh(st: &SettingsState) {
+    let (auth, ids) = {
+        let mut app = st.app.borrow_mut();
+        if app.calendar_fetching {
+            return;
+        }
+        let can_fetch = app.google_auth.lock().is_ok_and(|g| {
+            g.is_signed_in()
+                && g.has_scopes(&[GoogleAuth::CALENDAR_LIST_SCOPE, GoogleAuth::EVENTS_SCOPE])
+        });
+        if !can_fetch {
+            return;
+        }
+        app.calendar_fetching = true;
+        (
+            Arc::clone(&app.google_auth),
+            app.store.data.settings.calendar_ids.clone(),
+        )
+    };
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let res = fetch_calendars_and_events(&auth, ids.as_deref());
+        let _ = tx.send(SettingsAsyncResult::CalendarSynced(res));
+        post_settings_async(hwnd_raw);
+    });
+}
+
+fn spawn_settings_tasks_refresh(st: &SettingsState) {
+    let (auth, preferred_lid) = {
+        let mut app = st.app.borrow_mut();
+        if app.tasks_syncing || !app.store.data.settings.tasks_sync_enabled {
+            return;
+        }
+        let can_fetch = app
+            .google_auth
+            .lock()
+            .is_ok_and(|g| g.is_signed_in() && g.has_scopes(&[GoogleAuth::TASKS_SCOPE]));
+        if !can_fetch {
+            return;
+        }
+        app.tasks_syncing = true;
+        (
+            Arc::clone(&app.google_auth),
+            app.store.data.settings.tasks_list_id.clone(),
+        )
+    };
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let res = match fetch_google_task_lists(&auth) {
+            Ok(lists) => {
+                let lid = preferred_lid.or_else(|| lists.first().map(|l| l.id.clone()));
+                if let Some(lid) = lid {
+                    fetch_google_tasks(&auth, &lid).map(|remote| (lists, lid, remote))
+                } else {
+                    Err("No task list".to_string())
+                }
+            }
+            Err(e) => Err(e),
+        };
+        let _ = tx.send(SettingsAsyncResult::TasksSynced(res));
+        post_settings_async(hwnd_raw);
+    });
 }
 
 fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
@@ -1328,22 +1652,10 @@ fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
 
     // 3. Google
     begin_section("Google", st, &mut y);
-    let (configured, signed_in, has_cal, email) = app
-        .google_auth
-        .lock()
-        .map(|mut g| {
-            let cfg = g.reload_client();
-            let si = g.is_signed_in();
-            let cal =
-                si && g.has_scopes(&[GoogleAuth::CALENDAR_LIST_SCOPE, GoogleAuth::EVENTS_SCOPE]);
-            let em = g
-                .credential
-                .as_ref()
-                .map(|c| c.email.clone())
-                .unwrap_or_default();
-            (cfg, si, cal, em)
-        })
-        .unwrap_or((false, false, false, String::new()));
+    let configured = st.cached_google.configured;
+    let signed_in = st.cached_google.signed_in;
+    let has_cal = st.cached_google.has_cal;
+    let email = st.cached_google.email.clone();
     let connecting = st.google_cancel.is_some();
     let (g_btn, g_act) = if connecting {
         (s.common_cancel, SettingAction::GoogleCancel)
@@ -1535,7 +1847,11 @@ fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
         sby + 2.0,
         86.0,
         28.0,
-        s.settings_search,
+        if app.weather_searching {
+            s.settings_searching
+        } else {
+            s.settings_search
+        },
         SettingAction::SearchWeather,
     );
     for (pi, place) in app.weather_places.iter().take(4).enumerate() {
@@ -1836,20 +2152,17 @@ fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
 
     // 10. AI agents
     begin_section(s.settings_agents, st, &mut y);
-    let setup = AgentSetup::for_this_user();
-    let cli_dir = AgentSetup::cli_dir();
-    let on_path = AgentSetup::has_cli() && UserPath::contains(&cli_dir);
+    let on_path = st.cached_agents.on_path;
     let ag_h = 5.0 * 52.0 + 12.0;
     st.surface
         .fill_rounded_rect(cx, y, cw, ag_h, 12.0, 12.0, CARD_BG);
     let mut ay = y + 6.0;
-    for (label, id) in [
-        ("VS Code (Copilot)", "copilot"),
-        ("Claude Code", "claude"),
-        ("Cursor", "cursor"),
-        ("Codex", "codex"),
+    for (label, id, status) in [
+        ("VS Code (Copilot)", "copilot", st.cached_agents.copilot),
+        ("Claude Code", "claude", st.cached_agents.claude),
+        ("Cursor", "cursor", st.cached_agents.cursor),
+        ("Codex", "codex", st.cached_agents.codex),
     ] {
-        let status = setup.status(id);
         let on = matches!(status, AgentStatus::On | AgentStatus::OnByPlugin);
         let hint = match status {
             AgentStatus::NotFound => Some(s.agents_not_found),

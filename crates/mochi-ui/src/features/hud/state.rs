@@ -173,28 +173,33 @@ impl NotchApp {
             }
         }
         let caw = msg.important && !msg.celebrate && msg.kind == HudKind::Reminder;
-        let raven = msg.celebrate || caw;
-        self.hud_raven_land_at = None;
+        let show_companion = msg.celebrate || caw;
+        self.hud_companion_land_at = None;
         if msg.celebrate && msg.glyph == Glyphs::WATER {
-            self.hud_raven.shake();
+            self.hud_companion.shake();
         } else if msg.celebrate {
-            self.hud_raven.fly();
-            self.hud_raven_land_at = Some(Instant::now() + Duration::from_millis(1100));
+            self.hud_companion.fly();
+            self.hud_companion_land_at = Some(Instant::now() + Duration::from_millis(1100));
         } else if caw {
-            self.hud_raven.caw();
+            self.hud_companion.caw();
         } else {
-            self.hud_raven.stop();
+            self.hud_companion.stop();
         }
         if let Some(lvl) = msg.level {
             self.hud_bar_target = lvl.clamp(0.0, 1.0) * 96.0;
         }
-        self.hud_width = self.measure_hud(&msg, raven, factories) + 2.0 * HUD_PADDING;
+        self.hud_width = self.measure_hud(&msg, show_companion, factories) + 2.0 * HUD_PADDING;
         self.hud_active = true;
         self.update_targets(factories);
     }
 
-    fn measure_hud(&self, msg: &HudMessage, raven: bool, factories: Option<&D2dFactories>) -> f64 {
-        let mut w = if raven { 26.4 } else { 15.0 };
+    fn measure_hud(
+        &self,
+        msg: &HudMessage,
+        show_companion: bool,
+        factories: Option<&D2dFactories>,
+    ) -> f64 {
+        let mut w = if show_companion { 26.4 } else { 15.0 };
         let text_w = if let Some(f) = factories {
             f64::from(
                 f.measure_text(&msg.text, FontKind::Ui, 13.0, true, false, 320.0, false)
@@ -230,8 +235,8 @@ impl NotchApp {
             return;
         }
         self.hud_active = false;
-        self.hud_raven_land_at = None;
-        self.hud_raven.stop();
+        self.hud_companion_land_at = None;
+        self.hud_companion.stop();
         self.update_targets(factories);
     }
 
@@ -239,8 +244,8 @@ impl NotchApp {
         self.hud_queue.interrupt();
         self.hud_deadline = None;
         self.hud_active = false;
-        self.hud_raven_land_at = None;
-        self.hud_raven.stop();
+        self.hud_companion_land_at = None;
+        self.hud_companion.stop();
     }
 
     pub fn show_next_hud(&mut self, factories: Option<&D2dFactories>) {
@@ -257,12 +262,12 @@ impl NotchApp {
         self.news_active = true;
         self.news_deadline = Some(Instant::now() + Duration::from_secs(9));
         self.news_flight_t = if self.reduce_motion { 1.0 } else { 0.0 };
-        self.news_raven.letter = true;
-        self.news_raven.facing_left = true;
+        self.news_companion.letter = true;
+        self.news_companion.facing_left = true;
         if self.reduce_motion {
-            self.news_raven.perch();
+            self.news_companion.perch();
         } else {
-            self.news_raven.fly();
+            self.news_companion.fly();
         }
         self.update_targets(factories);
     }
@@ -273,8 +278,8 @@ impl NotchApp {
         }
         self.news_active = false;
         self.news_deadline = None;
-        self.news_raven.stop();
-        self.news_raven.letter = false;
+        self.news_companion.stop();
+        self.news_companion.letter = false;
         self.update_targets(factories);
         self.show_next_hud(factories);
     }

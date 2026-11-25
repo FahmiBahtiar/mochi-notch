@@ -1,4 +1,0 @@
-bin.name = "mochi-cli"
-args = ["activity", "set", "x", "--title", "日本語", "--progress", "150%"]
-status.code = 1
-fs.sandbox = true

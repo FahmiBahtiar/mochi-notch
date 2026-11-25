@@ -8,8 +8,7 @@ publish.workspace = true
 description = "Pomodoro focus timer state machine and duration formatting for Mochi"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+mochi-store = { path = "../mochi-store" }
 
 [lints]
 workspace = true

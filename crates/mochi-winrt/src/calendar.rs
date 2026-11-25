@@ -1,21 +1,12 @@
 use std::collections::HashSet;
+use std::sync::Mutex;
 
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime};
+pub use mochi_calendar::port::CalendarEvent;
 use serde_json::Value;
 
 use crate::google::GoogleAuth;
 use crate::http::url_encode;
-
-#[derive(Debug, Clone)]
-pub struct CalendarEvent {
-    pub id: String,
-    pub title: String,
-    pub start: NaiveDateTime,
-    pub end: NaiveDateTime,
-    pub all_day: bool,
-    pub meeting_url: Option<String>,
-    pub key: String,
-}
 
 #[derive(Debug, Clone)]
 pub struct CalendarInfo {
@@ -26,10 +17,11 @@ pub struct CalendarInfo {
 }
 
 pub fn fetch_calendars_and_events(
-    auth: &mut GoogleAuth,
+    auth: &Mutex<GoogleAuth>,
     included_ids: Option<&[String]>,
 ) -> Result<(Vec<CalendarInfo>, Vec<CalendarEvent>), String> {
-    let resp = auth.send_api(
+    let resp = GoogleAuth::send_api_shared(
+        auth,
         "GET",
         "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&fields=items(id,summary,summaryOverride,selected,primary)",
         None,
@@ -93,7 +85,7 @@ pub fn fetch_calendars_and_events(
             url_encode(&time_min),
             url_encode(&time_max),
         );
-        let Ok(ev_resp) = auth.send_api("GET", &url, None) else {
+        let Ok(ev_resp) = GoogleAuth::send_api_shared(auth, "GET", &url, None) else {
             continue;
         };
         if !(200..300).contains(&ev_resp.status) {
@@ -104,8 +96,7 @@ pub fn fetch_calendars_and_events(
         };
         if let Some(items) = ev_doc.get("items").and_then(Value::as_array) {
             for item in items {
-                if let Ok(Some(dto)) = mochi_calendar::port::parse_calendar_event(item.to_string())
-                    && let Some(ev) = dto_to_calendar_event(&dto)
+                if let Some(ev) = mochi_calendar::port::parse_calendar_event(item)
                     && seen_keys.insert(ev.key.clone())
                 {
                     events.push(ev);
@@ -115,30 +106,6 @@ pub fn fetch_calendars_and_events(
     }
     events.sort_by(|a, b| a.start.cmp(&b.start).then_with(|| a.title.cmp(&b.title)));
     Ok((calendars, events))
-}
-
-fn dto_to_calendar_event(v: &Value) -> Option<CalendarEvent> {
-    let id = v.get("Id")?.as_str()?.to_string();
-    let title = v.get("Title")?.as_str()?.to_string();
-    let start_s = v.get("StartIso")?.as_str()?;
-    let end_s = v.get("EndIso")?.as_str()?;
-    let start = parse_iso_naive(start_s)?;
-    let end = parse_iso_naive(end_s)?;
-    let all_day = v.get("AllDay")?.as_bool()?;
-    let meeting_url = v
-        .get("MeetingUrl")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let key = v.get("Key")?.as_str()?.to_string();
-    Some(CalendarEvent {
-        id,
-        title,
-        start,
-        end,
-        all_day,
-        meeting_url,
-        key,
-    })
 }
 
 pub(crate) fn parse_iso_naive(s: &str) -> Option<NaiveDateTime> {

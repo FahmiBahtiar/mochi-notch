@@ -3,8 +3,8 @@ use windows_numerics::{Matrix3x2, Vector2};
 use mochi_winrt::strings::fmt1;
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
-use crate::features::companion::state::{RavenAnimator, RavenMode};
+use crate::features::companion::render::draw_companion_sprite;
+use crate::features::companion::state::{CompanionAnimator, CompanionMode};
 use crate::features::widgets::render::{
     draw_circle_button, draw_pill_button, draw_undo_toast, rounded_rect_geom,
 };
@@ -60,10 +60,10 @@ pub(crate) fn draw_shelf_page(
             Some(&factories.dashed_stroke),
         );
         let cy = sy + (sh - 74.0) / 2.0;
-        let mut perch = RavenAnimator::default();
+        let mut perch = CompanionAnimator::default();
         perch.perch();
         let rx = sx + sw / 2.0 - 38.0;
-        draw_raven_sprite(factories, surf, &perch, rx, cy, 48.0);
+        draw_companion_sprite(factories, surf, &perch, rx, cy, 48.0);
         surf.draw_text(
             factories,
             "\u{E7B8}",
@@ -497,14 +497,14 @@ fn draw_shelf_drop_overlay(
     let hero_x = sx + (sw - hero_w) * 0.5;
     let mid_y = sy + sh * 0.5;
 
-    let mut drop_anim = app.drop_raven.clone();
-    if drop_anim.mode == RavenMode::Still {
+    let mut drop_anim = app.drop_companion.clone();
+    if drop_anim.mode == CompanionMode::Still {
         drop_anim.perch();
     }
     drop_anim.eye_scale_x = drop_anim.eye_scale_x.max(1.10);
     drop_anim.eye_scale_y = drop_anim.eye_scale_y.max(1.16);
     let cozmo_bob = -(phase * 2.2).sin().abs() * 2.5;
-    draw_raven_sprite(
+    draw_companion_sprite(
         factories,
         surf,
         &drop_anim,
@@ -822,10 +822,10 @@ fn draw_shelf_drop_burst(
             1.4,
             None,
         );
-        let mut happy = RavenAnimator::default();
+        let mut happy = CompanionAnimator::default();
         happy.nod();
         happy.frame_index = ((t * 36.0) as usize) % 36;
-        draw_raven_sprite(factories, surf, &happy, px + 6.0, py + 3.0, 22.0);
+        draw_companion_sprite(factories, surf, &happy, px + 6.0, py + 3.0, 22.0);
         surf.draw_text(
             factories,
             &badge_txt,

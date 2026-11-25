@@ -13,8 +13,8 @@ fn parse_open_meteo_dt(s: &str) -> Option<NaiveDateTime> {
 }
 
 pub fn fetch_weather(lat: f64, lon: f64, lang: Language) -> Option<WeatherReport> {
-    let c_lat = mochi_weather::port::coarse_coordinate(lat).unwrap_or(lat);
-    let c_lon = mochi_weather::port::coarse_coordinate(lon).unwrap_or(lon);
+    let c_lat = mochi_weather::port::coarse_coordinate(lat);
+    let c_lon = mochi_weather::port::coarse_coordinate(lon);
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={c_lat:.2}&longitude={c_lon:.2}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day&hourly=temperature_2m,precipitation_probability,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,uv_index_max&timezone=auto&forecast_days=2"
     );
@@ -23,16 +23,12 @@ pub fn fetch_weather(lat: f64, lon: f64, lang: Language) -> Option<WeatherReport
         return None;
     }
     let now = Local::now().naive_local();
-    let now_iso = now.format("%Y-%m-%dT%H:%M:%S").to_string();
     let root: Value = serde_json::from_str(&resp.body).ok()?;
-    let parsed = mochi_weather::port::parse_weather_report(resp.body, now_iso).ok()??;
-    let code = parsed.get("Code")?.as_i64()?;
-    let is_day = parsed.get("IsDay")?.as_bool()?;
-    let temp = parsed.get("Temperature")?.as_f64()?;
-    let rain_at = parsed
-        .get("RainAtIso")
-        .and_then(Value::as_str)
-        .and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f").ok());
+    let parsed = mochi_weather::port::parse_weather_report(&root, now)?;
+    let code = parsed.code;
+    let is_day = parsed.is_day;
+    let temp = parsed.temperature;
+    let rain_at = parsed.rain_at;
 
     let current = root.get("current");
     let feels_like = current
@@ -120,24 +116,13 @@ pub fn fetch_weather(lat: f64, lon: f64, lang: Language) -> Option<WeatherReport
         uv_index,
         code,
         is_day,
-        high: parsed.get("High").and_then(Value::as_f64),
-        low: parsed.get("Low").and_then(Value::as_f64),
+        high: parsed.high,
+        low: parsed.low,
         rain_at,
-        rain_chance: parsed
-            .get("RainChance")
-            .and_then(Value::as_i64)
-            .unwrap_or(0),
-        icon: parsed
-            .get("Icon")
-            .and_then(Value::as_str)
-            .unwrap_or("Cloudy")
-            .to_string(),
+        rain_chance: parsed.rain_chance,
+        icon: parsed.icon.to_string(),
         description: describe_weather(code, lang).to_string(),
-        temperature_text: parsed
-            .get("TemperatureText")
-            .and_then(Value::as_str)
-            .unwrap_or("0°")
-            .to_string(),
+        temperature_text: parsed.temperature_text,
         hourly: hourly_pts,
         fetched_at: now,
     })
@@ -158,19 +143,7 @@ pub fn search_weather_places(query: &str, lang: Language) -> Vec<WeatherPlace> {
     if !(200..300).contains(&resp.status) {
         return Vec::new();
     }
-    let Ok(list) = mochi_weather::port::parse_weather_places(resp.body) else {
-        return Vec::new();
-    };
-    list.into_iter()
-        .filter_map(|v| {
-            Some(WeatherPlace {
-                name: v.get("Name")?.as_str()?.to_string(),
-                detail: v.get("Detail")?.as_str()?.to_string(),
-                latitude: v.get("Latitude")?.as_f64()?,
-                longitude: v.get("Longitude")?.as_f64()?,
-            })
-        })
-        .collect()
+    mochi_weather::port::parse_weather_places(&resp.body)
 }
 
 pub fn describe_weather(code: i64, lang: Language) -> &'static str {

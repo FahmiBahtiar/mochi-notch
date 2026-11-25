@@ -5,7 +5,7 @@ use chrono::{Local, NaiveDateTime};
 use mochi_winrt::mochi_prayer::port::{PrayerMethod, build_prayer_schedule, format_hm};
 use mochi_winrt::paths::{HudKind, HudMessage};
 use mochi_winrt::strings::{fmt1, fmt2};
-use mochi_winrt::weather::search_weather_places;
+use mochi_winrt::weather::WeatherPlace;
 
 use crate::d2d::D2dFactories;
 use crate::state::NotchApp;
@@ -96,8 +96,8 @@ impl NotchApp {
         self.dirty = true;
     }
 
-    pub fn search_pray_places(&mut self, query: &str) {
-        self.pray_places = search_weather_places(query, self.lang);
+    pub fn apply_pray_places(&mut self, places: Vec<WeatherPlace>) {
+        self.pray_places = places;
         self.dirty = true;
     }
 

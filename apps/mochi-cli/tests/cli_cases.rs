@@ -5,6 +5,7 @@ fn recorded_cases() {
             "mochi-cli",
             std::path::Path::new(env!("CARGO_BIN_EXE_mochi-cli")),
         )
+        .env("MOCHI_PIPE", "Mochi.Test.Isolated")
         .case("tests/cases/*.toml")
         .skip("tests/cases/skill-show.toml");
 }

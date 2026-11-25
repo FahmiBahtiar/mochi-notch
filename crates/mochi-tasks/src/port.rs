@@ -1,13 +1,12 @@
-//! Pure task list, natural time parser, Google Tasks merge, and reminder formatting.
+//! Pure task list, natural time parser, and Google Tasks merge logic.
 
 #![forbid(unsafe_code)]
 
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
-use serde_json::{Value, json};
 
 static TRAILING_TIME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -16,7 +15,7 @@ static TRAILING_TIME_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid regex")
 });
 
-fn parse_dt(s: &str) -> Option<NaiveDateTime> {
+pub fn parse_dt(s: &str) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f")
         .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
         .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M"))
@@ -27,33 +26,42 @@ fn parse_dt(s: &str) -> Option<NaiveDateTime> {
         .ok()
 }
 
-fn format_dt_o(dt: NaiveDateTime) -> String {
-    let base = dt.format("%Y-%m-%dT%H:%M:%S");
-    let ticks = dt.and_utc().timestamp_subsec_nanos() / 100;
-    format!("{base}.{ticks:07}")
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedTaskInput {
+    pub text: String,
+    pub due: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Clone)]
-struct TaskItem {
-    text: String,
-    done: bool,
-    due: Option<NaiveDateTime>,
-    due_all_day: bool,
-    google_id: Option<String>,
-    dirty: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalTaskInput {
+    pub id: String,
+    pub text: String,
+    pub done: bool,
+    pub due: Option<NaiveDateTime>,
+    pub due_all_day: bool,
+    pub reminded: bool,
+    pub google_id: Option<String>,
+    pub dirty: bool,
 }
 
-impl TaskItem {
-    fn to_json(&self) -> Value {
-        json!({
-            "Text": self.text,
-            "Done": self.done,
-            "DueIso": self.due.map(format_dt_o),
-            "DueAllDay": self.due_all_day,
-            "GoogleId": self.google_id,
-            "Dirty": self.dirty,
-        })
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteTaskInput {
+    pub id: String,
+    pub title: String,
+    pub done: bool,
+    pub due_date: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergedTask {
+    pub id: Option<String>,
+    pub text: String,
+    pub done: bool,
+    pub due: Option<NaiveDateTime>,
+    pub due_all_day: bool,
+    pub reminded: bool,
+    pub google_id: Option<String>,
+    pub dirty: bool,
 }
 
 fn time_of_day(caps: &regex::Captures<'_>) -> Option<NaiveTime> {
@@ -90,73 +98,29 @@ fn time_of_day(caps: &regex::Captures<'_>) -> Option<NaiveTime> {
     NaiveTime::from_hms_opt(h24, minutes, 0)
 }
 
-/// Port of `SimulateTaskList` (`tasks_core/TasksCoreUnit.cs:34`).
-pub fn simulate_task_list(steps: Option<Vec<Value>>) -> Result<Vec<Value>, String> {
-    let now = NaiveDate::from_ymd_opt(2026, 10, 26)
-        .unwrap()
-        .and_hms_opt(14, 0, 0)
-        .unwrap();
-    let mut items: Vec<TaskItem> = Vec::new();
-
-    if let Some(steps) = steps {
-        for step in steps {
-            let op = step.get("Op").and_then(Value::as_str).unwrap_or("");
-            let idx = step.get("Index").and_then(Value::as_i64).unwrap_or(-1);
-            match op {
-                "add" => {
-                    let Some(raw) = step.get("Text").and_then(Value::as_str) else {
-                        continue;
-                    };
-                    let mut text = raw.trim().to_string();
-                    if text.is_empty() {
-                        continue;
-                    }
-                    let mut due = None;
-                    if let Some(caps) = TRAILING_TIME_RE.captures(&text)
-                        && let Some(time) = time_of_day(&caps)
-                    {
-                        text = caps.get(1).map_or("", |m| m.as_str()).trim().to_string();
-                        let at = now.date().and_time(time);
-                        due = Some(if at > now { at } else { at + Duration::days(1) });
-                    }
-                    let insert_at = items.iter().take_while(|t| !t.done).count();
-                    items.insert(
-                        insert_at,
-                        TaskItem {
-                            text,
-                            done: false,
-                            due,
-                            due_all_day: false,
-                            google_id: None,
-                            dirty: false,
-                        },
-                    );
-                }
-                "toggle" if idx >= 0 && (idx as usize) < items.len() => {
-                    let mut item = items.remove(idx as usize);
-                    item.done = !item.done;
-                    if item.google_id.is_some() {
-                        item.dirty = true;
-                    }
-                    let insert_at = if item.done {
-                        items.len()
-                    } else {
-                        items.iter().take_while(|t| !t.done).count()
-                    };
-                    items.insert(insert_at, item);
-                }
-                "remove" if idx >= 0 && (idx as usize) < items.len() => {
-                    items.remove(idx as usize);
-                }
-                _ => {}
-            }
-        }
+pub fn parse_task_input(raw: &str, now: NaiveDateTime) -> ParsedTaskInput {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return ParsedTaskInput {
+            text: String::new(),
+            due: None,
+        };
     }
-
-    Ok(items.iter().map(TaskItem::to_json).collect())
+    if let Some(caps) = TRAILING_TIME_RE.captures(trimmed)
+        && let Some(time) = time_of_day(&caps)
+    {
+        let text = caps.get(1).map_or("", |m| m.as_str()).trim().to_string();
+        let at = now.date().and_time(time);
+        let due = Some(if at > now { at } else { at + Duration::days(1) });
+        return ParsedTaskInput { text, due };
+    }
+    ParsedTaskInput {
+        text: trimmed.to_string(),
+        due: None,
+    }
 }
 
-fn set_due_from_google(item: &mut TaskItem, date: Option<NaiveDateTime>) {
+fn set_due_from_google(item: &mut MergedTask, date: Option<NaiveDateTime>) {
     match date {
         None => {
             item.due = None;
@@ -171,124 +135,70 @@ fn set_due_from_google(item: &mut TaskItem, date: Option<NaiveDateTime>) {
     }
 }
 
-/// Port of `ApplyRemoteTasks` (`tasks_core/TasksCoreUnit.cs:65`).
 pub fn apply_remote_tasks(
-    local: Option<Vec<Value>>,
-    remote: Option<Vec<Value>>,
-    pending_deletes: Option<Vec<String>>,
-) -> Result<Vec<Value>, String> {
-    let pending: HashSet<String> = pending_deletes.unwrap_or_default().into_iter().collect();
-    let mut items: Vec<TaskItem> = local
-        .unwrap_or_default()
-        .into_iter()
-        .map(|v| TaskItem {
-            text: v
-                .get("Text")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            done: v.get("Done").and_then(Value::as_bool).unwrap_or(false),
-            due: v.get("DueIso").and_then(Value::as_str).and_then(parse_dt),
-            due_all_day: v.get("DueAllDay").and_then(Value::as_bool).unwrap_or(false),
-            google_id: v
-                .get("GoogleId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            dirty: v.get("Dirty").and_then(Value::as_bool).unwrap_or(false),
-        })
-        .collect();
-
-    struct RemoteTask {
-        id: String,
-        title: String,
-        done: bool,
-        due_date: Option<NaiveDateTime>,
-    }
-
-    let remote_list: Vec<RemoteTask> = remote
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| {
-            Some(RemoteTask {
-                id: v.get("Id")?.as_str()?.to_string(),
-                title: v
-                    .get("Title")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                done: v.get("Done").and_then(Value::as_bool).unwrap_or(false),
-                due_date: v
-                    .get("DueDateIso")
-                    .and_then(Value::as_str)
-                    .and_then(parse_dt),
-            })
-        })
-        .collect();
-
-    let mut by_id: HashMap<String, &RemoteTask> = HashMap::new();
-    for r in &remote_list {
-        by_id.entry(r.id.clone()).or_insert(r);
+    local: Vec<LocalTaskInput>,
+    remote: &[RemoteTaskInput],
+    pending_deletes: &[String],
+) -> Vec<MergedTask> {
+    let pending: HashSet<&str> = pending_deletes.iter().map(String::as_str).collect();
+    let mut by_id: HashMap<&str, &RemoteTaskInput> = HashMap::new();
+    for r in remote {
+        by_id.entry(r.id.as_str()).or_insert(r);
     }
 
     let mut known: HashSet<String> = HashSet::new();
-    let mut kept: Vec<TaskItem> = Vec::with_capacity(items.len());
-    for mut item in items.drain(..) {
-        let Some(gid) = item.google_id.clone() else {
-            kept.push(item);
+    let mut kept: Vec<MergedTask> = Vec::with_capacity(local.len());
+    for item in local {
+        let mut merged = MergedTask {
+            id: Some(item.id),
+            text: item.text,
+            done: item.done,
+            due: item.due,
+            due_all_day: item.due_all_day,
+            reminded: item.reminded,
+            google_id: item.google_id,
+            dirty: item.dirty,
+        };
+        let Some(gid) = merged.google_id.clone() else {
+            kept.push(merged);
             continue;
         };
         known.insert(gid.clone());
-        if item.dirty {
-            kept.push(item);
+        if merged.dirty {
+            kept.push(merged);
             continue;
         }
-        let Some(rt) = by_id.get(&gid) else {
+        let Some(rt) = by_id.get(gid.as_str()) else {
             continue;
         };
-        item.text = rt.title.clone();
-        item.done = rt.done;
-        set_due_from_google(&mut item, rt.due_date);
-        kept.push(item);
+        merged.text = rt.title.clone();
+        merged.done = rt.done;
+        set_due_from_google(&mut merged, rt.due_date);
+        kept.push(merged);
     }
 
-    for rt in &remote_list {
-        if known.contains(&rt.id) || pending.contains(&rt.id) {
+    for rt in remote {
+        if known.contains(&rt.id) || pending.contains(rt.id.as_str()) {
             continue;
         }
         known.insert(rt.id.clone());
-        let mut item = TaskItem {
+        let mut merged = MergedTask {
+            id: None,
             text: rt.title.clone(),
             done: rt.done,
             due: None,
             due_all_day: false,
+            reminded: false,
             google_id: Some(rt.id.clone()),
             dirty: false,
         };
-        set_due_from_google(&mut item, rt.due_date);
-        kept.push(item);
+        set_due_from_google(&mut merged, rt.due_date);
+        kept.push(merged);
     }
 
-    let mut ordered: Vec<TaskItem> = kept.iter().filter(|t| !t.done).cloned().collect();
+    let mut ordered: Vec<MergedTask> = kept.iter().filter(|t| !t.done).cloned().collect();
     ordered.extend(kept.into_iter().filter(|t| t.done));
-    Ok(ordered.iter().map(TaskItem::to_json).collect())
-}
-
-/// Port of `TaskReminderValue` (`tasks_core/TasksCoreUnit.cs:105`).
-pub fn task_reminder_value(due_iso: String, now_iso: String) -> Result<Option<String>, String> {
-    let (Some(due), Some(now)) = (parse_dt(&due_iso), parse_dt(&now_iso)) else {
-        return Ok(None);
-    };
-    let time = format!("{:02}:{:02}", due.hour(), due.minute());
-    let late = now - due;
-    if late < Duration::minutes(5) {
-        return Ok(Some(time));
-    }
-    let by = if late < Duration::hours(1) {
-        format!("{} min", late.num_minutes())
-    } else {
-        format!("{} h", late.num_hours())
-    };
-    Ok(Some(format!("{time} · {by} late")))
+    ordered
 }
 
 #[cfg(test)]
@@ -297,20 +207,108 @@ mod tests {
 
     #[test]
     fn trailing_time_parses_id_and_en() {
-        let res = simulate_task_list(Some(vec![
-            json!({"Op": "add", "Text": "Rapat pukul 15:30", "Index": 0}),
-            json!({"Op": "add", "Text": "Call Ana at 3pm", "Index": 0}),
-            json!({"Op": "add", "Text": "Rapat jam 9.30", "Index": 0}),
-            json!({"Op": "add", "Text": "belajar 2h", "Index": 0}),
-        ]))
-        .unwrap();
-        assert_eq!(res[0]["Text"], "Rapat");
-        assert!(res[0]["DueIso"].is_string());
-        assert_eq!(res[1]["Text"], "Call Ana");
-        assert!(res[1]["DueIso"].is_string());
-        assert_eq!(res[2]["Text"], "Rapat");
-        assert!(res[2]["DueIso"].is_string());
-        assert_eq!(res[3]["Text"], "belajar 2h");
-        assert!(res[3]["DueIso"].is_null());
+        let now = NaiveDate::from_ymd_opt(2026, 10, 26)
+            .unwrap()
+            .and_hms_opt(14, 0, 0)
+            .unwrap();
+        let r1 = parse_task_input("Rapat pukul 15:30", now);
+        assert_eq!(r1.text, "Rapat");
+        assert!(r1.due.is_some());
+
+        let r2 = parse_task_input("Call Ana at 3pm", now);
+        assert_eq!(r2.text, "Call Ana");
+        assert!(r2.due.is_some());
+
+        let r3 = parse_task_input("Rapat jam 9.30", now);
+        assert_eq!(r3.text, "Rapat");
+        assert!(r3.due.is_some());
+
+        let r4 = parse_task_input("belajar 2h", now);
+        assert_eq!(r4.text, "belajar 2h");
+        assert!(r4.due.is_none());
+    }
+
+    #[test]
+    fn parse_task_input_uses_supplied_now() {
+        let now = NaiveDate::from_ymd_opt(2026, 11, 25)
+            .unwrap()
+            .and_hms_opt(14, 0, 0)
+            .unwrap();
+        let later_today = parse_task_input("Call Ana at 3pm", now);
+        assert_eq!(later_today.text, "Call Ana");
+        assert_eq!(
+            later_today.due,
+            Some(
+                NaiveDate::from_ymd_opt(2026, 11, 25)
+                    .unwrap()
+                    .and_hms_opt(15, 0, 0)
+                    .unwrap()
+            )
+        );
+        let tomorrow = parse_task_input("Standup at 9am", now);
+        assert_eq!(tomorrow.text, "Standup");
+        assert_eq!(
+            tomorrow.due,
+            Some(
+                NaiveDate::from_ymd_opt(2026, 11, 26)
+                    .unwrap()
+                    .and_hms_opt(9, 0, 0)
+                    .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn apply_remote_tasks_preserves_local_ids_and_skips_pending_deletes() {
+        let local = vec![
+            LocalTaskInput {
+                id: "local-1".into(),
+                text: "Local only".into(),
+                done: false,
+                due: None,
+                due_all_day: false,
+                reminded: false,
+                google_id: None,
+                dirty: false,
+            },
+            LocalTaskInput {
+                id: "synced-1".into(),
+                text: "Old title".into(),
+                done: false,
+                due: None,
+                due_all_day: false,
+                reminded: true,
+                google_id: Some("g-1".into()),
+                dirty: false,
+            },
+        ];
+        let remote = vec![
+            RemoteTaskInput {
+                id: "g-1".into(),
+                title: "New title".into(),
+                done: false,
+                due_date: None,
+            },
+            RemoteTaskInput {
+                id: "g-del".into(),
+                title: "Deleted locally".into(),
+                done: false,
+                due_date: None,
+            },
+            RemoteTaskInput {
+                id: "g-new".into(),
+                title: "Brand new".into(),
+                done: false,
+                due_date: None,
+            },
+        ];
+        let merged = apply_remote_tasks(local, &remote, &["g-del".into()]);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].id.as_deref(), Some("local-1"));
+        assert_eq!(merged[1].id.as_deref(), Some("synced-1"));
+        assert_eq!(merged[1].text, "New title");
+        assert!(merged[1].reminded);
+        assert_eq!(merged[2].id, None);
+        assert_eq!(merged[2].google_id.as_deref(), Some("g-new"));
     }
 }
