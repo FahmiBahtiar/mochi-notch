@@ -131,8 +131,8 @@ jobs:
           }
           $utf8NoBom = New-Object System.Text.UTF8Encoding $false
           [System.IO.File]::WriteAllText((Resolve-Path "Cargo.toml").Path, $updated, $utf8NoBom)
-          cargo update --workspace --offline
-          if ($LASTEXITCODE -ne 0) { throw "cargo update --workspace --offline failed" }
+          cargo update --workspace
+          if ($LASTEXITCODE -ne 0) { throw "cargo update --workspace failed" }
 
       - uses: Swatinem/rust-cache@v2
         if: steps.ver.outputs.should_release == 'true'
