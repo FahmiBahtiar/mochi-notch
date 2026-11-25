@@ -46,15 +46,21 @@
   <data name="Settings_AccentHint" xml:space="preserve"><value>When off, everything stays black and white.</value></data>
   <data name="Settings_Updates" xml:space="preserve"><value>Updates</value></data>
   <data name="Settings_UpdateCheck" xml:space="preserve"><value>Tell me when there's a new version</value></data>
-  <data name="Settings_UpdateCheckHint" xml:space="preserve"><value>One check a day of GitHub's public releases page. Nothing about you or the PC is sent. Updating happens only when you click it: the installer comes from GitHub and is checked before it runs.</value></data>
+  <data name="Settings_UpdateCheckHint" xml:space="preserve"><value>One check a day of GitHub's public releases page. Nothing about you or the PC is sent. The installer is verified with SHA-256 before it runs.</value></data>
+  <data name="Settings_AutoUpdate" xml:space="preserve"><value>Install updates automatically</value></data>
+  <data name="Settings_AutoUpdateHint" xml:space="preserve"><value>Downloads, verifies SHA-256, and installs new versions in the background.</value></data>
   <data name="Settings_UpdateAvailable" xml:space="preserve"><value>Version {0} available</value></data>
-  <data name="Settings_OpenDownload" xml:space="preserve"><value>Open download page</value></data>
+  <data name="Settings_UpdateNow" xml:space="preserve"><value>Update now</value></data>
+  <data name="Settings_Updating" xml:space="preserve"><value>Updating…</value></data>
   <data name="Settings_ThisVersion" xml:space="preserve"><value>Mochi {0}</value></data>
   <data name="Settings_CheckNow" xml:space="preserve"><value>Check now</value></data>
   <data name="Settings_Checking" xml:space="preserve"><value>Checking…</value></data>
   <data name="Tray_CheckUpdates" xml:space="preserve"><value>Check for updates</value></data>
+  <data name="Tray_UpdateNow" xml:space="preserve"><value>Update to {0}</value></data>
   <data name="Hud_UpToDate" xml:space="preserve"><value>Mochi is up to date</value></data>
   <data name="Hud_CheckFailed" xml:space="preserve"><value>Couldn't check for updates</value></data>
+  <data name="Hud_UpdateDownloading" xml:space="preserve"><value>Downloading update</value></data>
+  <data name="Hud_UpdateFailed" xml:space="preserve"><value>Update failed</value></data>
   <data name="Settings_Media" xml:space="preserve"><value>Media</value></data>
   <data name="Settings_Lyrics" xml:space="preserve"><value>Synced lyrics</value></data>
   <data name="Settings_LyricsHint" xml:space="preserve"><value>Looked up on LRCLIB (lrclib.net), sending only artist, title and length.</value></data>

@@ -475,7 +475,10 @@ pub struct NotchApp {
     pub pray_anim_phase: f64,
 
     pub update_checking: bool,
+    pub update_installing: bool,
     pub update_available: Option<String>,
+    pub update_error: Option<String>,
+    pub update_pending_exit: bool,
 
     // Watchers & Services
     pub keyboard_watcher: KeyboardWatcher,
@@ -550,7 +553,8 @@ impl NotchApp {
             } else {
                 None
             },
-            update_check_enabled: store.data.settings.update_check_enabled,
+            update_check_enabled: store.data.settings.update_check_enabled
+                || store.data.settings.auto_update_enabled,
         };
 
         let mut app = Self {
@@ -768,7 +772,10 @@ impl NotchApp {
             pray_anim_phase: 0.0,
 
             update_checking: false,
+            update_installing: false,
             update_available: None,
+            update_error: None,
+            update_pending_exit: false,
 
             keyboard_watcher: KeyboardWatcher::new(),
             power_watcher: PowerWatcher::new(),
@@ -2114,7 +2121,7 @@ impl NotchApp {
             } else {
                 None
             },
-            update_check_enabled: s.update_check_enabled,
+            update_check_enabled: s.update_check_enabled || s.auto_update_enabled,
         }
     }
 

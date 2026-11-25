@@ -66,8 +66,12 @@ use mochi_winrt::native::{
 use mochi_winrt::notifications::{NotificationEvent, start_notification_watcher};
 use mochi_winrt::paths::{Glyphs, HudKind, HudMessage};
 use mochi_winrt::pipe::ActivityPipe;
+use mochi_winrt::strings::fmt1;
 use mochi_winrt::tasks::{RemoteTask, TaskListInfo, fetch_google_task_lists, fetch_google_tasks};
-use mochi_winrt::updates::fetch_latest_release_tag;
+use mochi_winrt::updates::{
+    DownloadedUpdate, cleanup_old_installers, download_and_verify_update, fetch_latest_release_tag,
+    launch_silent_installer,
+};
 use mochi_winrt::watchers::{
     create_single_instance_mutex, detect_fullscreen, is_session_locked,
     register_session_notifications, start_brightness_watcher, start_camera_watcher,
@@ -99,6 +103,7 @@ const CMD_SETTINGS: usize = 1003;
 const CMD_UPDATES: usize = 1004;
 const CMD_DEMO: usize = 1005;
 const CMD_QUIT: usize = 1006;
+const CMD_INSTALL_UPDATE: usize = 1007;
 
 pub struct LaunchOptions {
     pub bench: Option<String>,
@@ -134,6 +139,7 @@ enum BgEvent {
         tag: Option<String>,
         notify_hud: bool,
     },
+    UpdateInstallDone(Result<DownloadedUpdate, String>),
     SystemNotification(NotificationEvent),
 }
 
@@ -539,6 +545,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
 }
 
 fn start_services(host: &mut WindowHost) {
+    std::thread::spawn(cleanup_old_installers);
     let hwnd_raw = host.hwnd.0 as usize;
     let wake = move || {
         // SAFETY: Posting wake message to UI thread.
@@ -916,13 +923,27 @@ fn drain_bg_events(host: &mut WindowHost) {
             BgEvent::UpdateCheckDone { tag, notify_hud } => {
                 let mut app = host.app.borrow_mut();
                 app.apply_update_tag(tag.clone());
-                if notify_hud {
+                app.update_error = None;
+                if app.update_available.is_some()
+                    && app.store.data.settings.auto_update_enabled
+                    && !app.update_installing
+                    && !app.fullscreen_app
+                {
+                    spawn_update_install(
+                        &host.bg_tx,
+                        host.hwnd,
+                        &mut app,
+                        Some(&host.factories),
+                        notify_hud,
+                    );
+                } else if notify_hud {
                     let s = app.lang.strings();
                     let mut m = if let Some(t) = tag {
                         if app.update_available.is_some() {
                             let mut msg = HudMessage::new(Glyphs::BELL, s.hud_new_version);
                             msg.value = Some(t);
                             msg.duration_ms = 5000;
+                            msg.tag = Some("update-available".to_string());
                             msg
                         } else {
                             let mut msg = HudMessage::new("\u{E73E}", s.hud_up_to_date);
@@ -938,6 +959,49 @@ fn drain_bg_events(host: &mut WindowHost) {
                     };
                     m.kind = HudKind::Reminder;
                     app.show_hud(m, Some(&host.factories));
+                }
+            }
+            BgEvent::UpdateInstallDone(res) => {
+                let mut should_exit = false;
+                {
+                    let mut app = host.app.borrow_mut();
+                    app.update_installing = false;
+                    match res {
+                        Ok(downloaded) => {
+                            app.update_error = None;
+                            app.store.save_now();
+                            match launch_silent_installer(&downloaded.installer_path) {
+                                Ok(()) => should_exit = true,
+                                Err(e) => {
+                                    app.update_error = Some(e);
+                                    let mut msg = HudMessage::new(
+                                        Glyphs::BELL,
+                                        app.lang.strings().hud_update_failed,
+                                    );
+                                    msg.warning = true;
+                                    msg.duration_ms = 4000;
+                                    msg.kind = HudKind::Reminder;
+                                    app.show_hud(msg, Some(&host.factories));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            app.update_error = Some(e);
+                            let mut msg =
+                                HudMessage::new(Glyphs::BELL, app.lang.strings().hud_update_failed);
+                            msg.warning = true;
+                            msg.duration_ms = 4000;
+                            msg.kind = HudKind::Reminder;
+                            app.show_hud(msg, Some(&host.factories));
+                        }
+                    }
+                }
+                if should_exit {
+                    // SAFETY: Closing main window cleanly so the silent installer can replace binaries and relaunch.
+                    unsafe {
+                        let _ = DestroyWindow(host.hwnd);
+                    }
+                    return;
                 }
             }
             BgEvent::SystemNotification(ev) => {
@@ -1104,12 +1168,42 @@ fn spawn_update_check(
         return;
     }
     app.update_checking = true;
+    app.update_error = None;
     app.dirty = true;
     let tx = bg_tx.clone();
     let hwnd_raw = hwnd.0 as usize;
     std::thread::spawn(move || {
         let tag = fetch_latest_release_tag();
         let _ = tx.send(BgEvent::UpdateCheckDone { tag, notify_hud });
+        post_wake(hwnd_raw);
+    });
+}
+
+fn spawn_update_install(
+    bg_tx: &mpsc::Sender<BgEvent>,
+    hwnd: HWND,
+    app: &mut NotchApp,
+    factories: Option<&D2dFactories>,
+    notify_hud: bool,
+) {
+    if app.update_installing {
+        return;
+    }
+    app.update_installing = true;
+    app.update_error = None;
+    app.dirty = true;
+    if notify_hud {
+        let mut msg = HudMessage::new(Glyphs::DOWNLOAD, app.lang.strings().hud_update_downloading);
+        msg.value = app.update_available.clone();
+        msg.duration_ms = 4000;
+        msg.kind = HudKind::Reminder;
+        app.show_hud(msg, factories);
+    }
+    let tx = bg_tx.clone();
+    let hwnd_raw = hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let res = download_and_verify_update(env!("CARGO_PKG_VERSION"));
+        let _ = tx.send(BgEvent::UpdateInstallDone(res));
         post_wake(hwnd_raw);
     });
 }
@@ -1574,6 +1668,13 @@ unsafe extern "system" fn notch_wnd_proc(
         }
         WM_WAKE => {
             drain_bg_events(host);
+            if host.app.try_borrow().is_ok_and(|a| a.update_pending_exit) {
+                // SAFETY: Closing main window cleanly so the silent installer can replace binaries and relaunch.
+                unsafe {
+                    let _ = DestroyWindow(hwnd);
+                }
+                return LRESULT(0);
+            }
             refresh_display_cache(host);
             if let Ok(app) = host.app.try_borrow() {
                 app.sync_online_config();
@@ -2079,6 +2180,16 @@ unsafe extern "system" fn notch_wnd_proc(
                     let mut app = host.app.borrow_mut();
                     spawn_update_check(&host.bg_tx, host.hwnd, &mut app, true);
                 }
+                CMD_INSTALL_UPDATE => {
+                    let mut app = host.app.borrow_mut();
+                    spawn_update_install(
+                        &host.bg_tx,
+                        host.hwnd,
+                        &mut app,
+                        Some(&host.factories),
+                        true,
+                    );
+                }
                 CMD_DEMO => {
                     let mut app = host.app.borrow_mut();
                     if app.simulated_idle_secs.is_some() || app.force_ambient {
@@ -2190,7 +2301,22 @@ fn handle_click(host: &mut WindowHost, target: HoverTarget) {
             HoverTarget::Notch => {
                 if !app.expanded {
                     app.hover_deadline = None;
-                    if !app.go_to_activity_window() {
+                    let update_hud = app.hud_active
+                        && app
+                            .hud_queue
+                            .current
+                            .as_ref()
+                            .is_some_and(|c| c.tag.as_deref() == Some("update-available"));
+                    if update_hud {
+                        app.hide_hud(Some(&host.factories));
+                        spawn_update_install(
+                            &host.bg_tx,
+                            host.hwnd,
+                            &mut app,
+                            Some(&host.factories),
+                            true,
+                        );
+                    } else if !app.go_to_activity_window() {
                         app.set_expanded(true, Some(&host.factories));
                     }
                 }
@@ -3052,12 +3178,13 @@ fn remove_tray_icon(host: &mut WindowHost) {
 }
 
 fn show_tray_menu(host: &WindowHost) {
-    let (s, hidden, demo_on) = {
+    let (s, hidden, demo_on, update_avail) = {
         let app = host.app.borrow();
         (
             app.lang.strings(),
             app.hidden_by_user,
             app.simulated_idle_secs.is_some() || app.force_ambient,
+            app.update_available.clone(),
         )
     };
     // SAFETY: Creating and showing Win32 popup menu at cursor position.
@@ -3083,6 +3210,15 @@ fn show_tray_menu(host: &WindowHost) {
             CMD_SETTINGS,
             PCWSTR(to_wide(s.tray_settings).as_ptr()),
         );
+        if let Some(ref ver) = update_avail {
+            let lbl = fmt1(s.tray_update_now, ver);
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING,
+                CMD_INSTALL_UPDATE,
+                PCWSTR(to_wide(&lbl).as_ptr()),
+            );
+        }
         let _ = AppendMenuW(
             menu,
             MF_STRING,

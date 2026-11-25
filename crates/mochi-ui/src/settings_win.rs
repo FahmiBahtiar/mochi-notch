@@ -32,7 +32,9 @@ use mochi_winrt::native::{Autostart, to_wide};
 use mochi_winrt::paths::AppPaths;
 use mochi_winrt::strings::{Language, fmt1};
 use mochi_winrt::tasks::{RemoteTask, TaskListInfo, fetch_google_task_lists, fetch_google_tasks};
-use mochi_winrt::updates::fetch_latest_release_tag;
+use mochi_winrt::updates::{
+    DownloadedUpdate, download_and_verify_update, fetch_latest_release_tag, launch_silent_installer,
+};
 use mochi_winrt::weather::{WeatherPlace, WeatherReport, fetch_weather, search_weather_places};
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
@@ -52,6 +54,7 @@ type GoogleOAuthResult = Result<(serde_json::Value, Vec<&'static str>, bool), St
 
 enum SettingsAsyncResult {
     UpdatesChecked(Option<String>),
+    UpdateInstallDone(Result<DownloadedUpdate, String>),
     WeatherSearched(Vec<WeatherPlace>),
     WeatherLocated(Option<(f64, f64)>),
     WeatherFetched(Option<WeatherReport>),
@@ -126,6 +129,7 @@ enum SettingAction {
     WelcomeDone,
     ToggleWaterReminders,
     ToggleUpdateCheck,
+    ToggleAutoUpdate,
     CycleLanguage,
     ToggleAutostart,
     CycleMonitor,
@@ -138,7 +142,7 @@ enum SettingAction {
     ToggleCalmMotion,
     ToggleAccent,
     CheckUpdatesNow,
-    OpenReleases,
+    InstallUpdate,
     ToggleLyrics,
     GoogleConnectOrDisconnect,
     GoogleCancel,
@@ -586,8 +590,40 @@ unsafe extern "system" fn settings_wnd_proc(
             while let Ok(res) = st.async_rx.try_recv() {
                 match res {
                     SettingsAsyncResult::UpdatesChecked(tag) => {
-                        st.app.borrow_mut().apply_update_tag(tag);
+                        let mut app = st.app.borrow_mut();
+                        app.apply_update_tag(tag);
+                        app.update_error = None;
                         notify_host = true;
+                    }
+                    SettingsAsyncResult::UpdateInstallDone(res) => {
+                        let mut close_settings = false;
+                        {
+                            let mut app = st.app.borrow_mut();
+                            app.update_installing = false;
+                            match res {
+                                Ok(downloaded) => {
+                                    app.update_error = None;
+                                    app.store.save_now();
+                                    match launch_silent_installer(&downloaded.installer_path) {
+                                        Ok(()) => {
+                                            app.update_pending_exit = true;
+                                            close_settings = true;
+                                            notify_host = true;
+                                        }
+                                        Err(e) => app.update_error = Some(e),
+                                    }
+                                }
+                                Err(e) => app.update_error = Some(e),
+                            }
+                        }
+                        if close_settings {
+                            (st.on_changed)();
+                            // SAFETY: Closing Settings window before silent installer replaces binaries.
+                            unsafe {
+                                let _ = DestroyWindow(hwnd);
+                            }
+                            return LRESULT(0);
+                        }
                     }
                     SettingsAsyncResult::WeatherSearched(places) => {
                         st.app.borrow_mut().apply_weather_places(places);
@@ -697,6 +733,13 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 app.store.data.settings.update_check_enabled =
                     !app.store.data.settings.update_check_enabled;
             }
+            SettingAction::ToggleAutoUpdate => {
+                app.store.data.settings.auto_update_enabled =
+                    !app.store.data.settings.auto_update_enabled;
+                if app.store.data.settings.auto_update_enabled {
+                    app.store.data.settings.update_check_enabled = true;
+                }
+            }
             SettingAction::CycleLanguage => {
                 app.store.data.settings.language = match app.store.data.settings.language.as_deref()
                 {
@@ -759,11 +802,10 @@ fn handle_setting_action(st: &mut SettingsState, act: SettingAction) {
                 spawn_settings_update_check(st);
                 return;
             }
-            SettingAction::OpenReleases => {
-                NotchApp::open_external_url(
-                    "https://github.com/FahmiBahtiar/mochi-notch/releases/latest",
-                );
-                changed = false;
+            SettingAction::InstallUpdate => {
+                drop(app);
+                spawn_settings_update_install(st);
+                return;
             }
             SettingAction::ToggleLyrics => {
                 app.store.data.settings.lyrics_enabled = !app.store.data.settings.lyrics_enabled;
@@ -1103,12 +1145,31 @@ fn spawn_settings_update_check(st: &SettingsState) {
             return;
         }
         app.update_checking = true;
+        app.update_error = None;
     }
     let tx = st.async_tx.clone();
     let hwnd_raw = st.hwnd.0 as usize;
     std::thread::spawn(move || {
         let tag = fetch_latest_release_tag();
         let _ = tx.send(SettingsAsyncResult::UpdatesChecked(tag));
+        post_settings_async(hwnd_raw);
+    });
+}
+
+fn spawn_settings_update_install(st: &SettingsState) {
+    {
+        let mut app = st.app.borrow_mut();
+        if app.update_installing {
+            return;
+        }
+        app.update_installing = true;
+        app.update_error = None;
+    }
+    let tx = st.async_tx.clone();
+    let hwnd_raw = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let res = download_and_verify_update(env!("CARGO_PKG_VERSION"));
+        let _ = tx.send(SettingsAsyncResult::UpdateInstallDone(res));
         post_settings_async(hwnd_raw);
     });
 }
@@ -1581,11 +1642,17 @@ fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
 
     // 1. Updates
     begin_section(s.settings_updates, st, &mut y);
-    let upd_h = if app.update_available.is_some() {
-        168.0
-    } else {
-        116.0
-    };
+    let upd_h = 168.0
+        + if app.update_available.is_some() {
+            52.0
+        } else {
+            0.0
+        }
+        + if app.update_error.is_some() {
+            28.0
+        } else {
+            0.0
+        };
     st.surface
         .fill_rounded_rect(cx, y, cw, upd_h, 12.0, 12.0, CARD_BG);
     draw_switch_row(
@@ -1598,10 +1665,20 @@ fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
         set.update_check_enabled,
         SettingAction::ToggleUpdateCheck,
     );
-    draw_pill_row(
+    draw_switch_row(
         st,
         cx + 18.0,
         y + 58.0,
+        cw - 36.0,
+        s.settings_auto_update,
+        Some(s.settings_auto_update_hint),
+        set.auto_update_enabled,
+        SettingAction::ToggleAutoUpdate,
+    );
+    draw_pill_row(
+        st,
+        cx + 18.0,
+        y + 110.0,
         cw - 36.0,
         &fmt1(s.settings_this_version, env!("CARGO_PKG_VERSION")),
         if app.update_checking {
@@ -1611,15 +1688,41 @@ fn draw_settings(st: &mut SettingsState, w: f32, h: f32) {
         },
         SettingAction::CheckUpdatesNow,
     );
+    let mut err_y = y + 162.0;
     if let Some(ref avail) = app.update_available {
         draw_pill_row(
             st,
             cx + 18.0,
-            y + 110.0,
+            y + 162.0,
             cw - 36.0,
             &fmt1(s.settings_update_available, avail),
-            s.settings_open_download,
-            SettingAction::OpenReleases,
+            if app.update_installing {
+                s.settings_updating
+            } else {
+                s.settings_update_now
+            },
+            SettingAction::InstallUpdate,
+        );
+        err_y += 52.0;
+    }
+    if let Some(ref err) = app.update_error {
+        st.surface.draw_text(
+            &st.factories,
+            err,
+            cx + 18.0,
+            err_y,
+            cw - 36.0,
+            24.0,
+            FontKind::Ui,
+            12.0,
+            false,
+            WARNING_BRUSH,
+            HAlign::Left,
+            VAlign::Center,
+            false,
+            false,
+            true,
+            false,
         );
     }
     y += upd_h + 8.0;

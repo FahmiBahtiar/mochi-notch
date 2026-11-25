@@ -758,6 +758,10 @@ dependencies = [
 [[package]]
 name = "mochi-updates"
 version = "0.1.1"
+dependencies = [
+ "serde_json",
+ "url",
+]
 
 [[package]]
 name = "mochi-water"

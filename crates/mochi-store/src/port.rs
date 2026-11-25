@@ -65,6 +65,8 @@ pub struct SettingsData {
     pub lyrics_enabled: bool,
     #[serde(default)]
     pub update_check_enabled: bool,
+    #[serde(default)]
+    pub auto_update_enabled: bool,
     #[serde(default = "default_5")]
     pub calendar_reminder_minutes: i32,
     #[serde(default = "default_true")]
@@ -162,6 +164,7 @@ impl Default for SettingsData {
             mic_hotkey_enabled: false,
             lyrics_enabled: true,
             update_check_enabled: false,
+            auto_update_enabled: false,
             calendar_reminder_minutes: 5,
             calendar_in_compact: true,
             calendar_ids: None,

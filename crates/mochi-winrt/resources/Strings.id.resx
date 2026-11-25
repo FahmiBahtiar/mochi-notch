@@ -46,15 +46,21 @@
   <data name="Settings_AccentHint" xml:space="preserve"><value>Jika mati, tampilan tetap hitam dan putih.</value></data>
   <data name="Settings_Updates" xml:space="preserve"><value>Pembaruan</value></data>
   <data name="Settings_UpdateCheck" xml:space="preserve"><value>Beri tahu jika ada versi baru</value></data>
-  <data name="Settings_UpdateCheckHint" xml:space="preserve"><value>Memeriksa halaman rilis publik GitHub sekali sehari. Tidak ada data Anda atau PC yang dikirim. Pembaruan hanya berjalan saat Anda klik: pemasang diunduh dari GitHub dan diverifikasi sebelum dijalankan.</value></data>
+  <data name="Settings_UpdateCheckHint" xml:space="preserve"><value>Memeriksa halaman rilis publik GitHub sekali sehari. Tidak ada data Anda atau PC yang dikirim. Pemasang diverifikasi dengan SHA-256 sebelum dijalankan.</value></data>
+  <data name="Settings_AutoUpdate" xml:space="preserve"><value>Pasang pembaruan otomatis</value></data>
+  <data name="Settings_AutoUpdateHint" xml:space="preserve"><value>Mengunduh, memverifikasi SHA-256, dan memasang versi baru di latar belakang.</value></data>
   <data name="Settings_UpdateAvailable" xml:space="preserve"><value>Versi {0} tersedia</value></data>
-  <data name="Settings_OpenDownload" xml:space="preserve"><value>Buka halaman unduhan</value></data>
+  <data name="Settings_UpdateNow" xml:space="preserve"><value>Perbarui sekarang</value></data>
+  <data name="Settings_Updating" xml:space="preserve"><value>Memperbarui…</value></data>
   <data name="Settings_ThisVersion" xml:space="preserve"><value>Mochi {0}</value></data>
   <data name="Settings_CheckNow" xml:space="preserve"><value>Periksa sekarang</value></data>
   <data name="Settings_Checking" xml:space="preserve"><value>Memeriksa…</value></data>
   <data name="Tray_CheckUpdates" xml:space="preserve"><value>Periksa pembaruan</value></data>
+  <data name="Tray_UpdateNow" xml:space="preserve"><value>Perbarui ke {0}</value></data>
   <data name="Hud_UpToDate" xml:space="preserve"><value>Mochi sudah versi terbaru</value></data>
   <data name="Hud_CheckFailed" xml:space="preserve"><value>Gagal memeriksa pembaruan</value></data>
+  <data name="Hud_UpdateDownloading" xml:space="preserve"><value>Mengunduh pembaruan</value></data>
+  <data name="Hud_UpdateFailed" xml:space="preserve"><value>Pembaruan gagal</value></data>
   <data name="Settings_Media" xml:space="preserve"><value>Media</value></data>
   <data name="Settings_Lyrics" xml:space="preserve"><value>Lirik tersinkron</value></data>
   <data name="Settings_LyricsHint" xml:space="preserve"><value>Dicari di LRCLIB (lrclib.net), hanya mengirim artis, judul, dan durasi.</value></data>

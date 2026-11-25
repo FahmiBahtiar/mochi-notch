@@ -64,6 +64,10 @@ impl AppPaths {
     pub fn logs_dir() -> PathBuf {
         Self::data_dir().join("logs")
     }
+
+    pub fn updates_dir() -> PathBuf {
+        Self::data_dir().join("updates")
+    }
 }
 
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -295,6 +299,7 @@ impl Glyphs {
     pub const BELL: &str = "\u{EA8F}";
     pub const CALENDAR: &str = "\u{E787}";
     pub const CLOUD: &str = "\u{E753}";
+    pub const DOWNLOAD: &str = "\u{E896}";
 }
 
 pub struct AppStore {
