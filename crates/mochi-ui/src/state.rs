@@ -813,28 +813,19 @@ impl NotchApp {
 
         if !cfg!(test) && app.bench.is_none() && app.shots_dir.is_none() {
             let setup = mochi_winrt::agent_setup::AgentSetup::for_this_user();
-            let mut ensure_path = false;
             if !app.store.data.settings.copilot_hooks_initialized
                 && app.store.data.settings.activities_enabled
                 && mochi_winrt::agent_setup::AgentSetup::has_cli()
                 && setup.status("copilot") == mochi_winrt::agent_setup::AgentStatus::Off
             {
-                if setup.set("copilot", true).is_ok() {
-                    ensure_path = true;
-                }
+                let _ = setup.set("copilot", true);
                 app.store.data.settings.copilot_hooks_initialized = true;
                 app.store.save_now();
             } else if setup.status("copilot") == mochi_winrt::agent_setup::AgentStatus::On {
-                ensure_path = setup.upgrade_copilot_if_needed();
+                setup.upgrade_copilot_if_needed();
             }
-            if ensure_path && mochi_winrt::agent_setup::AgentSetup::has_cli() {
-                let dir = mochi_winrt::agent_setup::AgentSetup::cli_dir();
-                let is_cargo_target = dir
-                    .components()
-                    .any(|c| c.as_os_str().eq_ignore_ascii_case("target"));
-                if !is_cargo_target && !mochi_winrt::agent_setup::UserPath::contains(&dir) {
-                    mochi_winrt::agent_setup::UserPath::set(&dir, true);
-                }
+            if setup.status("cursor") == mochi_winrt::agent_setup::AgentStatus::On {
+                setup.upgrade_cursor_if_needed();
             }
             app.copilot_hooks_on =
                 setup.status("copilot") == mochi_winrt::agent_setup::AgentStatus::On;

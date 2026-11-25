@@ -1,8 +1,10 @@
 use std::fs;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND, LPARAM, WPARAM};
+use windows::Win32::Storage::FileSystem::GetShortPathNameW;
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
@@ -75,12 +77,13 @@ pub enum AgentStatus {
 
 pub struct AgentSetup {
     home: PathBuf,
+    cli: PathBuf,
     skill: String,
 }
 
 impl AgentSetup {
-    pub fn new(home: PathBuf, skill: String) -> Self {
-        Self { home, skill }
+    pub fn new(home: PathBuf, cli: PathBuf, skill: String) -> Self {
+        Self { home, cli, skill }
     }
 
     pub fn installed_cli() -> PathBuf {
@@ -105,7 +108,7 @@ impl AgentSetup {
         let home = std::env::var_os("USERPROFILE")
             .map(PathBuf::from)
             .unwrap_or_default();
-        Self::new(home, EMBEDDED_SKILL.to_string())
+        Self::new(home, Self::installed_cli(), EMBEDDED_SKILL.to_string())
     }
 
     pub fn remove_all() {
@@ -117,17 +120,38 @@ impl AgentSetup {
         }
     }
 
-    pub fn upgrade_copilot_if_needed(&self) -> bool {
-        Self::has_cli() && self.upgrade_copilot_file()
+    pub fn upgrade_copilot_if_needed(&self) {
+        if !Self::has_cli() {
+            return;
+        }
+        self.upgrade_flat_if_needed("copilot", &self.copilot_file());
     }
 
-    fn upgrade_copilot_file(&self) -> bool {
-        let file = self.copilot_file();
-        if let Ok(text) = fs::read_to_string(&file)
-            && text.contains("hook copilot")
-            && !text.contains("\"mochi-cli hook copilot\"")
-        {
-            return self.set("copilot", true).is_ok();
+    pub fn upgrade_cursor_if_needed(&self) {
+        if !Self::has_cli() {
+            return;
+        }
+        self.upgrade_flat_if_needed("cursor", &self.cursor_file());
+    }
+
+    fn upgrade_flat_if_needed(&self, agent: &str, file: &Path) -> bool {
+        let expected = format_hook_command(&self.cli, agent, agent == "copilot");
+        let Ok(root) = read_json_obj(file) else {
+            return false;
+        };
+        let Some(hooks) = root.get("hooks").and_then(Value::as_object) else {
+            return false;
+        };
+        let needs_upgrade = hooks.values().any(|list| {
+            list.as_array().is_some_and(|arr| {
+                arr.iter().any(|h| {
+                    is_ours(h, agent)
+                        && h.get("command").and_then(Value::as_str) != Some(expected.as_str())
+                })
+            })
+        });
+        if needs_upgrade {
+            return self.set(agent, true).is_ok();
         }
         false
     }
@@ -223,8 +247,9 @@ impl AgentSetup {
         match agent {
             "copilot" => {
                 let file = self.copilot_file();
+                let command = format_hook_command(&self.cli, "copilot", true);
                 update_json_obj(&file, |root| {
-                    set_copilot_flat(root, &COPILOT_EVENTS, on);
+                    set_copilot_flat(root, &COPILOT_EVENTS, on, &command);
                 })?;
                 if !on
                     && let Ok(root) = read_json_obj(&file)
@@ -242,12 +267,15 @@ impl AgentSetup {
                     })
                 });
             })?,
-            "cursor" => update_json_obj(&self.cursor_file(), |root| {
-                if !root.contains_key("version") {
-                    root.insert("version".to_string(), json!(1));
-                }
-                set_flat(root, "cursor", &CURSOR_EVENTS, on);
-            })?,
+            "cursor" => {
+                let command = format_hook_command(&self.cli, "cursor", false);
+                update_json_obj(&self.cursor_file(), |root| {
+                    if !root.contains_key("version") {
+                        root.insert("version".to_string(), json!(1));
+                    }
+                    set_flat(root, "cursor", &CURSOR_EVENTS, on, &command);
+                })?;
+            }
             "codex" => update_json_obj(&self.codex_file(), |root| {
                 set_grouped(root, "codex", &CODEX_EVENTS, on, |timeout| {
                     json!({
@@ -431,7 +459,71 @@ fn set_grouped(
     }
 }
 
-fn set_flat(root: &mut Map<String, Value>, agent: &str, events: &[(&str, u64)], on: bool) {
+fn needs_shell_quoting(s: &str) -> bool {
+    s.chars().any(|c| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '\'' | '"' | '&' | '(' | ')' | ';' | '$' | '`' | '|' | '<' | '>' | '^' | '%'
+            )
+    })
+}
+
+fn short_path_name(path: &Path) -> Option<PathBuf> {
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    // SAFETY: `wide` is NUL-terminated UTF-16; passing `None` queries the required buffer length.
+    let needed = unsafe { GetShortPathNameW(PCWSTR(wide.as_ptr()), None) };
+    if needed == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; needed as usize];
+    // SAFETY: `wide` is NUL-terminated UTF-16 and `buf` has `needed` u16 capacity.
+    let written = unsafe { GetShortPathNameW(PCWSTR(wide.as_ptr()), Some(&mut buf)) };
+    if written == 0 || written >= needed {
+        return None;
+    }
+    Some(PathBuf::from(std::ffi::OsString::from_wide(
+        &buf[..written as usize],
+    )))
+}
+
+fn shell_safe_cli_path(cli: &Path) -> String {
+    let raw = cli.to_string_lossy().replace('\\', "/");
+    if !needs_shell_quoting(&raw) {
+        return raw;
+    }
+    if let (Some(parent), Some(name)) = (cli.parent(), cli.file_name())
+        && let Some(short_parent) = short_path_name(parent)
+    {
+        let candidate = short_parent.join(name).to_string_lossy().replace('\\', "/");
+        if !needs_shell_quoting(&candidate) {
+            return candidate;
+        }
+    }
+    raw
+}
+
+fn format_hook_command(cli: &Path, agent: &str, powershell_fallback: bool) -> String {
+    let safe = shell_safe_cli_path(cli);
+    if !needs_shell_quoting(&safe) {
+        return format!("{safe} hook {agent}");
+    }
+    if powershell_fallback {
+        let native = cli.to_string_lossy();
+        format!("& '{}' hook {agent}", native.replace('\'', "''"))
+    } else {
+        format!("\"{safe}\" hook {agent}")
+    }
+}
+
+fn set_flat(
+    root: &mut Map<String, Value>,
+    agent: &str,
+    events: &[(&str, u64)],
+    on: bool,
+    command: &str,
+) {
     if let Some(Value::Object(hooks)) = root.get_mut("hooks") {
         let keys: Vec<String> = hooks.keys().cloned().collect();
         for name in keys {
@@ -456,7 +548,6 @@ fn set_flat(root: &mut Map<String, Value>, agent: &str, events: &[(&str, u64)], 
     let Some(hooks_obj) = target.as_object_mut() else {
         return;
     };
-    let command = format!("mochi-cli hook {agent}");
     for &(name, timeout) in events {
         let handlers = hooks_obj
             .entry(name.to_string())
@@ -467,7 +558,12 @@ fn set_flat(root: &mut Map<String, Value>, agent: &str, events: &[(&str, u64)], 
     }
 }
 
-fn set_copilot_flat(root: &mut Map<String, Value>, events: &[(&str, u64)], on: bool) {
+fn set_copilot_flat(
+    root: &mut Map<String, Value>,
+    events: &[(&str, u64)],
+    on: bool,
+    command: &str,
+) {
     if let Some(Value::Object(hooks)) = root.get_mut("hooks") {
         let keys: Vec<String> = hooks.keys().cloned().collect();
         for name in keys {
@@ -502,7 +598,7 @@ fn set_copilot_flat(root: &mut Map<String, Value>, events: &[(&str, u64)], on: b
         if let Some(arr) = handlers.as_array_mut() {
             arr.push(json!({
                 "type": "command",
-                "command": "mochi-cli hook copilot",
+                "command": command,
                 "timeout": timeout,
             }));
         }
@@ -712,7 +808,11 @@ mod tests {
         fs::create_dir_all(dir.join(".cursor")).unwrap();
         fs::create_dir_all(dir.join(".codex")).unwrap();
 
-        let setup = AgentSetup::new(dir.clone(), EMBEDDED_SKILL.to_string());
+        let setup = AgentSetup::new(
+            dir.clone(),
+            PathBuf::from(r"C:\Users\user\AppData\Local\Programs\Mochi\mochi-cli.exe"),
+            EMBEDDED_SKILL.to_string(),
+        );
         assert_eq!(setup.status("copilot"), AgentStatus::Off);
         assert_eq!(setup.status("claude"), AgentStatus::Off);
         assert_eq!(setup.status("cursor"), AgentStatus::Off);
@@ -726,11 +826,15 @@ mod tests {
         assert!(claude_json.contains("\"command\": \"mochi-cli hook claude\""));
         assert!(!claude_json.contains("\"args\""));
         let cursor_json = fs::read_to_string(dir.join(".cursor").join("hooks.json")).unwrap();
-        assert!(cursor_json.contains("\"command\": \"mochi-cli hook cursor\""));
+        assert!(cursor_json.contains(
+            "\"command\": \"C:/Users/user/AppData/Local/Programs/Mochi/mochi-cli.exe hook cursor\""
+        ));
         assert!(!cursor_json.contains("& '"));
         let copilot_json =
             fs::read_to_string(dir.join(".copilot").join("hooks").join("mochi.json")).unwrap();
-        assert!(copilot_json.contains("\"command\": \"mochi-cli hook copilot\""));
+        assert!(copilot_json.contains(
+            "\"command\": \"C:/Users/user/AppData/Local/Programs/Mochi/mochi-cli.exe hook copilot\""
+        ));
         assert!(!copilot_json.contains("& '"));
         assert_eq!(setup.status("copilot"), AgentStatus::On);
         assert_eq!(setup.status("claude"), AgentStatus::On);
@@ -791,24 +895,46 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_copilot_migrates_legacy_powershell_command() {
+    fn upgrade_copilot_migrates_bare_and_legacy_commands() {
         let dir = std::env::temp_dir().join(format!("mochi-agent-upg-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let hooks_dir = dir.join(".copilot").join("hooks");
         fs::create_dir_all(&hooks_dir).unwrap();
         fs::write(
             hooks_dir.join("mochi.json"),
-            r#"{"hooks":{"SessionStart":[{"type":"command","command":"& 'C:\\Program Files\\Mochi\\mochi-cli.exe' hook copilot","timeout":5}]}}"#,
+            r#"{"hooks":{"SessionStart":[{"type":"command","command":"mochi-cli hook copilot","timeout":5}]}}"#,
         )
         .unwrap();
 
-        let setup = AgentSetup::new(dir.clone(), EMBEDDED_SKILL.to_string());
+        let cli = PathBuf::from(r"C:\Users\user\AppData\Local\Programs\Mochi\mochi-cli.exe");
+        let setup = AgentSetup::new(dir.clone(), cli.clone(), EMBEDDED_SKILL.to_string());
         assert_eq!(setup.status("copilot"), AgentStatus::On);
-        assert!(setup.upgrade_copilot_file());
+        assert!(setup.upgrade_flat_if_needed("copilot", &setup.copilot_file()));
         let updated = fs::read_to_string(hooks_dir.join("mochi.json")).unwrap();
-        assert!(updated.contains("\"command\": \"mochi-cli hook copilot\""));
-        assert!(!updated.contains("& '"));
-        assert!(!setup.upgrade_copilot_file());
+        assert!(updated.contains(
+            "\"command\": \"C:/Users/user/AppData/Local/Programs/Mochi/mochi-cli.exe hook copilot\""
+        ));
+        assert!(!setup.upgrade_flat_if_needed("copilot", &setup.copilot_file()));
+
+        // Also verify fallback quoting when path has spaces and cannot be shortened.
+        let spaced = PathBuf::from(r"C:\NonExistent Space Dir\Mochi\mochi-cli.exe");
+        assert_eq!(
+            format_hook_command(&spaced, "copilot", true),
+            r"& 'C:\NonExistent Space Dir\Mochi\mochi-cli.exe' hook copilot"
+        );
+        assert_eq!(
+            format_hook_command(&spaced, "cursor", false),
+            "\"C:/NonExistent Space Dir/Mochi/mochi-cli.exe\" hook cursor"
+        );
+
+        // And verify real directory with spaces uses 8.3 short parent dir when available.
+        let space_dir = dir.join("space dir");
+        fs::create_dir_all(&space_dir).unwrap();
+        let real_spaced_cli = space_dir.join("mochi-cli.exe");
+        fs::write(&real_spaced_cli, b"").unwrap();
+        let cmd = format_hook_command(&real_spaced_cli, "cursor", false);
+        assert!(cmd.to_ascii_lowercase().contains("mochi-cli.exe"));
+        assert!(cmd.ends_with("hook cursor"));
         let _ = fs::remove_dir_all(&dir);
     }
 }
