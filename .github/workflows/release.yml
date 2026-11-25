@@ -2,26 +2,147 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (auto uses Cargo.toml if untagged, else patch)"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
   id-token: write
   attestations: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: >-
+      github.event_name != 'push' ||
+      github.ref_type == 'tag' ||
+      (!startsWith(github.event.head_commit.message, 'chore: release ') &&
+       !contains(github.event.head_commit.message, '[skip release]'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Determine release version
+        id: ver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $refType = "${{ github.ref_type }}"
+          $refName = "${{ github.ref_name }}"
+          $eventName = "${{ github.event_name }}"
+          $bumpInput = "${{ inputs.bump }}"
+
+          if ($refType -eq "tag") {
+            $ver = $refName.TrimStart('v', 'V')
+            "should_release=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "tag=$refName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "needs_bump=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "create_tag=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+
+          $headTags = @(git tag --points-at HEAD "v*" "V*" | Where-Object { $_ })
+          if ($eventName -ne "workflow_dispatch" -and $headTags.Count -gt 0) {
+            Write-Host "HEAD already tagged ($($headTags -join ', ')); skipping release."
+            "should_release=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+
+          $cargoRaw = Get-Content -LiteralPath "Cargo.toml" -Raw
+          $m = [regex]::Match($cargoRaw, '(?ms)^\[workspace\.package\][^\[]*?^version\s*=\s*"(\d+)\.(\d+)\.(\d+)"')
+          if (-not $m.Success) {
+            throw "Could not parse [workspace.package] version from Cargo.toml"
+          }
+          $cargoVer = [version]::new([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value)
+
+          $tags = @(git tag -l "v*" "V*")
+          $maxTagVer = $null
+          foreach ($t in $tags) {
+            if ($t -match '^[vV](\d+)\.(\d+)\.(\d+)$') {
+              $tv = [version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+              if ($null -eq $maxTagVer -or $tv -gt $maxTagVer) {
+                $maxTagVer = $tv
+              }
+            }
+          }
+
+          $cargoTagExists = ($tags -contains "v$cargoVer") -or ($tags -contains "V$cargoVer")
+          $mode = if ($eventName -eq "workflow_dispatch" -and $bumpInput) { $bumpInput } else { "auto" }
+
+          if ($mode -eq "auto" -and -not $cargoTagExists -and ($null -eq $maxTagVer -or $cargoVer -gt $maxTagVer)) {
+            $nextVer = $cargoVer
+            $needsBump = $false
+          } else {
+            $base = if ($null -ne $maxTagVer -and $maxTagVer -gt $cargoVer) { $maxTagVer } else { $cargoVer }
+            $nextVer = switch ($mode) {
+              "major" { [version]::new($base.Major + 1, 0, 0) }
+              "minor" { [version]::new($base.Major, $base.Minor + 1, 0) }
+              default { [version]::new($base.Major, $base.Minor, $base.Build + 1) }
+            }
+            $needsBump = ($nextVer -ne $cargoVer)
+          }
+
+          $verStr = "$($nextVer.Major).$($nextVer.Minor).$($nextVer.Build)"
+          $tagStr = "v$verStr"
+          Write-Host "Resolved release version: $verStr (tag=$tagStr, needs_bump=$needsBump)"
+          "should_release=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$verStr" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=$tagStr" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "needs_bump=$($needsBump.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "create_tag=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Bump Cargo version
+        if: steps.ver.outputs.should_release == 'true' && steps.ver.outputs.needs_bump == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ver = "${{ steps.ver.outputs.version }}"
+          $raw = [System.IO.File]::ReadAllText((Resolve-Path "Cargo.toml").Path)
+          $updated = [regex]::Replace(
+            $raw,
+            '(?ms)(\[workspace\.package\][^\[]*?^version\s*=\s*")\d+\.\d+\.\d+(")',
+            "`${1}$ver`${2}",
+            1
+          )
+          if ($updated -eq $raw) {
+            throw "Failed to update [workspace.package] version in Cargo.toml"
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText((Resolve-Path "Cargo.toml").Path, $updated, $utf8NoBom)
+          cargo update --workspace --offline
+          if ($LASTEXITCODE -ne 0) { throw "cargo update --workspace --offline failed" }
+
       - uses: Swatinem/rust-cache@v2
+        if: steps.ver.outputs.should_release == 'true'
 
       - name: Run tests
+        if: steps.ver.outputs.should_release == 'true'
         run: cargo test --workspace --all-targets
 
       - name: Install Inno Setup 6
+        if: steps.ver.outputs.should_release == 'true'
         shell: pwsh
         run: |
           $paths = @(
@@ -38,15 +159,47 @@ jobs:
           }
 
       - name: Build installer
+        if: steps.ver.outputs.should_release == 'true'
         shell: pwsh
         env:
           MOCHI_GOOGLE_CLIENT_ID: ${{ secrets.MOCHI_GOOGLE_CLIENT_ID }}
           MOCHI_GOOGLE_CLIENT_SECRET: ${{ secrets.MOCHI_GOOGLE_CLIENT_SECRET }}
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart('v', 'V')
-          ./tools/build-installer.ps1 -Version $ver
+          ./tools/build-installer.ps1 -Version "${{ steps.ver.outputs.version }}"
+
+      - name: Commit version bump and push tag
+        if: steps.ver.outputs.should_release == 'true' && steps.ver.outputs.create_tag == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $needsBump = "${{ steps.ver.outputs.needs_bump }}" -eq "true"
+          if ($needsBump) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.toml Cargo.lock
+            git commit -m "chore: release $tag [skip ci]"
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            git push origin HEAD:main
+            $pushExit = $LASTEXITCODE
+            $ErrorActionPreference = $prevPref
+            if ($pushExit -ne 0) {
+              git fetch origin main
+              $remoteSha = (git rev-parse origin/main).Trim()
+              if ($remoteSha -ne "${{ github.sha }}") {
+                throw "origin/main moved to $remoteSha during release build; aborting so the newer run can release."
+              }
+              Write-Warning "Could not push version bump commit to main (likely branch protection); tagging ${{ github.sha }} instead."
+              git reset --hard origin/main
+            }
+          }
+          git tag -a $tag -m "Release $tag"
+          git push origin $tag
+          if ($LASTEXITCODE -ne 0) { throw "Failed to push tag $tag" }
 
       - name: Attest build provenance
+        if: steps.ver.outputs.should_release == 'true'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -54,8 +207,10 @@ jobs:
             dist/Mochi-Setup.exe
 
       - name: Publish GitHub Release
+        if: steps.ver.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
           generate_release_notes: true
           files: |
             dist/Mochi-Setup-*.exe
