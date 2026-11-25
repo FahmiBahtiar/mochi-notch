@@ -62,6 +62,20 @@ fn sha256_file_hex(path: &Path) -> Result<String, String> {
     Ok(hex)
 }
 
+fn validate_expected_installer_size(expected: u64) -> Result<(), String> {
+    if expected > MAX_INSTALLER_BYTES as u64 {
+        return Err("Installer exceeds size limit".to_string());
+    }
+    Ok(())
+}
+
+fn validate_downloaded_installer_size(expected: u64, actual: u64) -> Result<(), String> {
+    if expected > 0 && actual != expected {
+        return Err("Installer size mismatch".to_string());
+    }
+    Ok(())
+}
+
 pub fn download_and_verify_update(current_version: &str) -> Result<DownloadedUpdate, String> {
     download_and_verify_update_into(current_version, &AppPaths::updates_dir())
 }
@@ -75,6 +89,7 @@ fn download_and_verify_update_into(
     if !is_newer_version(Some(&info.version), current_version) {
         return Err("Already up to date".to_string());
     }
+    validate_expected_installer_size(info.installer_size)?;
 
     let sums_bytes = http_download_bytes(
         &info.checksums_url,
@@ -92,7 +107,7 @@ fn download_and_verify_update_into(
     let part_path = updates_dir.join(format!("{}.part", info.installer_name));
     let _ = fs::remove_file(&part_path);
 
-    http_download_to_file(
+    let downloaded_bytes = http_download_to_file(
         &info.installer_url,
         &part_path,
         &[("Accept", "application/octet-stream")],
@@ -100,6 +115,10 @@ fn download_and_verify_update_into(
         MAX_INSTALLER_BYTES,
         is_trusted_release_url,
     )?;
+    if let Err(e) = validate_downloaded_installer_size(info.installer_size, downloaded_bytes) {
+        let _ = fs::remove_file(&part_path);
+        return Err(e);
+    }
 
     let actual_sha = match sha256_file_hex(&part_path) {
         Ok(h) => h,
@@ -183,6 +202,15 @@ mod tests {
         let err = launch_silent_installer(&outside).unwrap_err();
         let _ = fs::remove_file(&outside);
         assert!(err.contains("Invalid") || err.contains("cannot find"));
+    }
+
+    #[test]
+    fn installer_size_validation_enforces_limit_and_exact_match() {
+        assert!(validate_expected_installer_size(3_000_000).is_ok());
+        assert!(validate_expected_installer_size((MAX_INSTALLER_BYTES as u64) + 1).is_err());
+        assert!(validate_downloaded_installer_size(0, 1234).is_ok());
+        assert!(validate_downloaded_installer_size(3_000_000, 3_000_000).is_ok());
+        assert!(validate_downloaded_installer_size(3_000_000, 2_999_999).is_err());
     }
 
     #[test]
