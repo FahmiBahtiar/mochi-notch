@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use chrono::NaiveDateTime;
 use serde_json::Value;
 
@@ -19,8 +21,9 @@ pub struct RemoteTask {
     pub due_date: Option<NaiveDateTime>,
 }
 
-pub fn fetch_google_task_lists(auth: &mut GoogleAuth) -> Result<Vec<TaskListInfo>, String> {
-    let resp = auth.send_api(
+pub fn fetch_google_task_lists(auth: &Mutex<GoogleAuth>) -> Result<Vec<TaskListInfo>, String> {
+    let resp = GoogleAuth::send_api_shared(
+        auth,
         "GET",
         "https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100&fields=items(id,title)",
         None,
@@ -46,12 +49,15 @@ pub fn fetch_google_task_lists(auth: &mut GoogleAuth) -> Result<Vec<TaskListInfo
     Ok(lists)
 }
 
-pub fn fetch_google_tasks(auth: &mut GoogleAuth, list_id: &str) -> Result<Vec<RemoteTask>, String> {
+pub fn fetch_google_tasks(
+    auth: &Mutex<GoogleAuth>,
+    list_id: &str,
+) -> Result<Vec<RemoteTask>, String> {
     let url = format!(
         "https://tasks.googleapis.com/tasks/v1/lists/{}/tasks?showCompleted=true&showHidden=true&maxResults=100",
         url_encode(list_id)
     );
-    let resp = auth.send_api("GET", &url, None)?;
+    let resp = GoogleAuth::send_api_shared(auth, "GET", &url, None)?;
     if !(200..300).contains(&resp.status) {
         return Err(format!("HTTP {}", resp.status));
     }

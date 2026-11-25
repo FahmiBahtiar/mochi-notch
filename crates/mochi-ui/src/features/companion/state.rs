@@ -3,7 +3,7 @@ use mochi_winrt::mochi_gaze::port::EyeGazeController;
 use crate::state::NotchApp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RavenMode {
+pub enum CompanionMode {
     Still,
     Perched,
     Asleep,
@@ -47,6 +47,14 @@ impl GazeState {
         self.inner.trigger_blink(force_double);
     }
 
+    pub fn is_animating(&self, sleeping: bool, reduced_motion: bool) -> bool {
+        self.inner.is_animating(sleeping, reduced_motion)
+    }
+
+    pub fn advance_idle(&mut self, dt: f64, cursor_screen_px: Option<(f64, f64)>) -> bool {
+        self.inner.advance_idle(dt, cursor_screen_px)
+    }
+
     pub fn step(
         &mut self,
         dt: f64,
@@ -76,8 +84,8 @@ impl GazeState {
 }
 
 #[derive(Debug, Clone)]
-pub struct RavenAnimator {
-    pub mode: RavenMode,
+pub struct CompanionAnimator {
+    pub mode: CompanionMode,
     pub state: String,
     pub frame_index: usize,
     pub facing_left: bool,
@@ -92,10 +100,10 @@ pub struct RavenAnimator {
     interval: f64,
 }
 
-impl Default for RavenAnimator {
+impl Default for CompanionAnimator {
     fn default() -> Self {
         Self {
-            mode: RavenMode::Still,
+            mode: CompanionMode::Still,
             state: "idle".to_string(),
             frame_index: 0,
             facing_left: false,
@@ -112,35 +120,35 @@ impl Default for RavenAnimator {
     }
 }
 
-impl RavenAnimator {
+impl CompanionAnimator {
     pub fn perch(&mut self) {
-        if self.mode == RavenMode::Perched {
+        if self.mode == CompanionMode::Perched {
             return;
         }
-        self.enter(RavenMode::Perched, "idle", 0.033);
+        self.enter(CompanionMode::Perched, "idle", 0.033);
         self.gaze.trigger_blink(true);
     }
 
     pub fn sleep(&mut self) {
-        if self.mode == RavenMode::Asleep {
+        if self.mode == CompanionMode::Asleep {
             return;
         }
         self.dim = true;
-        self.enter(RavenMode::Asleep, "idle", 0.085);
+        self.enter(CompanionMode::Asleep, "idle", 0.085);
     }
 
     pub fn nod(&mut self) {
-        if self.mode == RavenMode::Nodding {
+        if self.mode == CompanionMode::Nodding {
             return;
         }
-        self.enter(RavenMode::Nodding, "yes", 0.033);
+        self.enter(CompanionMode::Nodding, "yes", 0.033);
     }
 
     pub fn fly(&mut self) {
-        if self.mode == RavenMode::Flying {
+        if self.mode == CompanionMode::Flying {
             return;
         }
-        self.enter(RavenMode::Flying, "jump", 0.025);
+        self.enter(CompanionMode::Flying, "jump", 0.025);
     }
 
     pub fn land(&mut self) {
@@ -160,7 +168,7 @@ impl RavenAnimator {
     }
 
     pub fn stop(&mut self) {
-        self.mode = RavenMode::Still;
+        self.mode = CompanionMode::Still;
         self.dim = false;
         self.state = "idle".to_string();
         self.frame_index = 0;
@@ -171,13 +179,34 @@ impl RavenAnimator {
         self.gaze.reset();
     }
 
-    fn enter(&mut self, mode: RavenMode, state: &str, interval: f64) {
+    pub fn is_animating(&self, reduced_motion: bool) -> bool {
+        match self.mode {
+            CompanionMode::Still => false,
+            CompanionMode::Perched => self.gaze.is_animating(false, reduced_motion),
+            CompanionMode::Asleep => !reduced_motion,
+            CompanionMode::Nodding | CompanionMode::Flying | CompanionMode::Thinking => {
+                !reduced_motion
+            }
+            CompanionMode::Reacting => true,
+        }
+    }
+
+    pub fn advance_idle(&mut self, dt: f64, cursor_screen_px: Option<(f64, f64)>) -> bool {
+        if self.mode == CompanionMode::Perched && self.gaze.advance_idle(dt, cursor_screen_px) {
+            self.accum = self.interval;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn enter(&mut self, mode: CompanionMode, state: &str, interval: f64) {
         self.mode = mode;
         self.state = state.to_string();
         self.frame_index = 0;
         self.facing_left = false;
-        self.dim = mode == RavenMode::Asleep;
-        if mode != RavenMode::Perched && mode != RavenMode::Asleep {
+        self.dim = mode == CompanionMode::Asleep;
+        if mode != CompanionMode::Perched && mode != CompanionMode::Asleep {
             self.eye_shift_x = 0.0;
             self.eye_shift_y = 0.0;
             self.eye_scale_x = 1.0;
@@ -188,7 +217,7 @@ impl RavenAnimator {
     }
 
     fn play_once(&mut self, state: &str, interval: f64) {
-        self.mode = RavenMode::Reacting;
+        self.mode = CompanionMode::Reacting;
         self.state = state.to_string();
         self.frame_index = 0;
         self.dim = false;
@@ -208,7 +237,7 @@ impl RavenAnimator {
         cursor_screen_px: Option<(f64, f64)>,
         cursor_offset_dip: Option<(f64, f64)>,
     ) -> bool {
-        if self.mode == RavenMode::Still {
+        if self.mode == CompanionMode::Still {
             return false;
         }
         self.accum += dt;
@@ -218,14 +247,14 @@ impl RavenAnimator {
         let step_dt = self.accum.clamp(0.001, 0.1);
         self.accum = 0.0;
 
-        if reduced_motion && self.mode != RavenMode::Reacting {
+        if reduced_motion && self.mode != CompanionMode::Reacting {
             let prev_frame = self.frame_index;
             self.frame_index = 0;
-            let gaze_changed = if self.mode == RavenMode::Asleep {
+            let gaze_changed = if self.mode == CompanionMode::Asleep {
                 let c = self.gaze.step(step_dt, true, true, None, None);
                 self.sync_eyes(8.5);
                 c
-            } else if self.mode == RavenMode::Perched {
+            } else if self.mode == CompanionMode::Perched {
                 let c = self
                     .gaze
                     .step(step_dt, false, true, cursor_screen_px, cursor_offset_dip);
@@ -244,28 +273,28 @@ impl RavenAnimator {
         const LOOP_FRAMES: usize = 36;
         const REACT_FRAMES: usize = 42;
         match self.mode {
-            RavenMode::Perched => {
+            CompanionMode::Perched => {
                 gaze_changed =
                     self.gaze
                         .step(step_dt, false, false, cursor_screen_px, cursor_offset_dip);
                 self.sync_eyes(8.5);
             }
-            RavenMode::Asleep => {
+            CompanionMode::Asleep => {
                 gaze_changed = self.gaze.step(step_dt, true, false, None, None);
                 self.sync_eyes(8.5);
             }
-            RavenMode::Nodding | RavenMode::Flying | RavenMode::Thinking => {
+            CompanionMode::Nodding | CompanionMode::Flying | CompanionMode::Thinking => {
                 self.frame_index = (self.frame_index + 1) % LOOP_FRAMES;
                 anim_changed = prev_frame != self.frame_index;
             }
-            RavenMode::Reacting => {
+            CompanionMode::Reacting => {
                 self.frame_index += 1;
                 anim_changed = true;
                 if self.frame_index >= REACT_FRAMES {
                     self.perch();
                 }
             }
-            RavenMode::Still => {}
+            CompanionMode::Still => {}
         }
         anim_changed || prev_mode != self.mode || gaze_changed
     }
@@ -284,26 +313,30 @@ impl NotchApp {
         let playing = self.media_state.as_ref().is_some_and(|m| m.is_playing);
         let nodding = idle && playing && !self.focus.is_active();
         if nodding {
-            self.music_raven.nod();
+            self.music_companion.nod();
         } else {
-            self.music_raven.stop();
+            self.music_companion.stop();
         }
 
-        let show_clock_raven = !idle
+        let show_clock_companion = !idle
             && self.media_state.is_none()
             && self.store.data.settings.companion_enabled
             && !self.focus.is_active()
             && self.upcoming_text.is_none();
-        if show_clock_raven {
-            self.clock_raven.perch();
+        if show_clock_companion {
+            self.clock_companion.perch();
         } else {
-            self.clock_raven.stop();
+            self.clock_companion.stop();
         }
 
         let ambient = (idle && !playing && self.is_visible()) || self.force_ambient;
         if ambient {
+            let entering = !self.ambient_shown;
             self.ambient_shown = true;
             self.visor_sleeping = self.presence_state == 2;
+            if entering && !self.visor_sleeping {
+                self.visor_gaze.trigger_blink(false);
+            }
         } else if self.ambient_shown {
             self.force_ambient = false;
             self.ambient_shown = false;

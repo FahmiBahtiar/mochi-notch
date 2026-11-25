@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 use win::{HostWindow, send_activity};
 
-const SKILL_MD: &str = include_str!("SKILL.md");
+const SKILL_MD: &str = mochi_activities::SKILL_MD;
 
 const USAGE: &str = "\
 mochi-cli: the console side of Mochi, for scripts and AI agents.
@@ -89,12 +89,12 @@ pub fn run(command: &str, matches: &ArgMatches) -> ExitCode {
         }
         "hook" => {
             if args.len() >= 2 && args[0] == "setup" {
-                match mochi_activities::port::agent_hook_setup(args[1].clone()) {
-                    Ok(Some(text)) => {
-                        write_stdout_line(&text);
+                match mochi_activities::port::agent_hook_setup(&args[1]) {
+                    Some(text) => {
+                        write_stdout_line(text);
                         ExitCode::from(0)
                     }
-                    _ => {
+                    None => {
                         write_stderr_line(USAGE);
                         ExitCode::from(1)
                     }
@@ -136,29 +136,18 @@ fn run_activity(args: &[String]) -> ExitCode {
         return ExitCode::from(if args.is_empty() { 1 } else { 0 });
     }
     let hw = HostWindow::find();
-    let built = match mochi_activities::port::build_activity_command(
-        args.to_vec(),
+    let json = match mochi_activities::port::build_activity_command(
+        args,
         hw.map(|w| w.handle),
         hw.map(|w| i64::from(w.pid)),
     ) {
-        Ok(v) => v,
-        Err(e) => {
-            write_stderr_line(&format!("{e}\r\n\r\n{ACTIVITY_USAGE}"));
+        Ok(j) => j,
+        Err(problem) => {
+            write_stderr_line(&format!("{problem}\r\n\r\n{ACTIVITY_USAGE}"));
             return ExitCode::from(1);
         }
     };
-    if built.get("Ok").and_then(Value::as_bool) != Some(true) {
-        let problem = built
-            .get("Error")
-            .and_then(Value::as_str)
-            .unwrap_or("invalid arguments");
-        write_stderr_line(&format!("{problem}\r\n\r\n{ACTIVITY_USAGE}"));
-        return ExitCode::from(1);
-    }
-    let Some(json) = built.get("Json").and_then(Value::as_str) else {
-        return ExitCode::from(1);
-    };
-    match send_activity(json, None, 2000) {
+    match send_activity(&json, None, 2000) {
         None => {
             write_stderr_line("Mochi isn't running.");
             ExitCode::from(2)
@@ -228,12 +217,9 @@ fn enrich_hook_request(
                     .map(str::to_string),
                 _ => v.get("cwd").and_then(Value::as_str).map(str::to_string),
             });
-        let project = mochi_activities::port::agent_hook_project_name(folder).unwrap_or_default();
-        if let Ok(title) =
-            mochi_activities::port::agent_hook_title(product.to_string(), project, Some(host))
-        {
-            map.insert("title".to_string(), Value::String(title));
-        }
+        let project = mochi_activities::port::agent_hook_project_name(folder.as_deref());
+        let title = mochi_activities::port::agent_hook_title(product, &project, Some(&host));
+        map.insert("title".to_string(), Value::String(title));
     }
     serde_json::to_string(&doc).unwrap_or_else(|_| req_json.to_string())
 }
@@ -247,16 +233,13 @@ fn run_hook(args: &[String]) -> ExitCode {
         return ExitCode::from(0);
     }
     let payload = read_hook_payload(&args[1..]);
-    let Ok(res) = mochi_activities::port::translate_agent_hook(agent.to_string(), payload.clone())
-    else {
-        return ExitCode::from(0);
-    };
-    if let Some(output) = res.get("Output").and_then(Value::as_str) {
+    let res = mochi_activities::port::translate_agent_hook(agent, payload.as_deref());
+    if let Some(output) = res.output {
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(output.as_bytes());
         let _ = out.flush();
     }
-    if let Some(req) = res.get("Request").and_then(Value::as_str) {
+    if let Some(req) = res.request {
         let host_win = HostWindow::find().or_else(|| {
             if agent == "copilot" {
                 HostWindow::find_vscode()
@@ -265,8 +248,8 @@ fn run_hook(args: &[String]) -> ExitCode {
             }
         });
         let final_req = match host_win {
-            Some(hw) => enrich_hook_request(agent, payload.as_deref(), req, hw),
-            None => req.to_string(),
+            Some(hw) => enrich_hook_request(agent, payload.as_deref(), &req, hw),
+            None => req,
         };
         let _ = send_activity(&final_req, None, 2000);
     }

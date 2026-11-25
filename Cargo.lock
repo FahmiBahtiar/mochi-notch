@@ -677,34 +677,24 @@ dependencies = [
 name = "mochi-focus"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
+ "mochi-store",
 ]
 
 [[package]]
 name = "mochi-gaze"
 version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "mochi-lyrics"
 version = "0.1.0"
 dependencies = [
  "regex",
- "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "mochi-media"
 version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "mochi-notifications"
@@ -734,10 +724,6 @@ version = "0.1.0"
 [[package]]
 name = "mochi-spring"
 version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "mochi-store"
@@ -753,7 +739,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "regex",
- "serde_json",
 ]
 
 [[package]]
@@ -778,8 +763,7 @@ version = "0.1.0"
 name = "mochi-water"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
+ "mochi-store",
 ]
 
 [[package]]

@@ -3,54 +3,32 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
-use serde_json::Value;
+pub use mochi_lyrics::port::LyricLine;
 
 use crate::http::{http_request, url_encode};
 use crate::paths::AppPaths;
 
 #[derive(Debug, Clone)]
-pub struct LyricLine {
-    pub time_seconds: f64,
-    pub text: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct Lyrics {
     pub lines: Vec<LyricLine>,
-    raw_lrc: String,
 }
 
 impl Lyrics {
     pub fn parse(lrc: &str) -> Option<Self> {
-        let parsed = mochi_lyrics::port::parse_lyrics(lrc.to_string()).ok()??;
-        let lines: Vec<LyricLine> = parsed
-            .into_iter()
-            .filter_map(|v| {
-                Some(LyricLine {
-                    time_seconds: v.get("TimeSeconds")?.as_f64()?,
-                    text: v.get("Text")?.as_str()?.to_string(),
-                })
-            })
-            .collect();
+        let lines = mochi_lyrics::port::parse_lyrics(lrc)?;
         if lines.is_empty() {
             None
         } else {
-            Some(Self {
-                lines,
-                raw_lrc: lrc.to_string(),
-            })
+            Some(Self { lines })
         }
     }
 
     pub fn index_at(&self, position_seconds: f64) -> isize {
-        mochi_lyrics::port::lyrics_index_at(self.raw_lrc.clone(), position_seconds).unwrap_or(-1)
-            as isize
+        mochi_lyrics::port::lyrics_index_at(&self.lines, position_seconds)
     }
 
     pub fn until_next_line(&self, position_seconds: f64) -> Option<f64> {
-        mochi_lyrics::port::lyrics_until_next_line(self.raw_lrc.clone(), position_seconds)
-            .ok()
-            .flatten()
+        mochi_lyrics::port::lyrics_until_next_line(&self.lines, position_seconds)
     }
 }
 
@@ -68,10 +46,8 @@ impl LyricsService {
     }
 
     pub fn seed(&self, artist: &str, title: &str, lrc: &str) {
-        if let Ok(key) = mochi_lyrics::port::lyrics_cache_key(artist.to_string(), title.to_string())
-        {
-            self.write_cache(&self.cache_dir.join(format!("{key}.lrc")), lrc);
-        }
+        let key = mochi_lyrics::port::lyrics_cache_key(artist, title);
+        self.write_cache(&self.cache_dir.join(format!("{key}.lrc")), lrc);
     }
 
     pub fn find(
@@ -81,25 +57,12 @@ impl LyricsService {
         source_app: &str,
         duration_secs: f64,
     ) -> Option<Lyrics> {
-        let q = mochi_lyrics::port::track_query_from(
-            title.to_string(),
-            artist.to_string(),
-            source_app.to_string(),
-        )
-        .ok()?;
-        let clean_artist = q.get("Artist").and_then(Value::as_str).unwrap_or("");
-        let clean_title = q.get("Title").and_then(Value::as_str).unwrap_or("");
-        let from_browser = q
-            .get("FromBrowser")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if clean_title.is_empty() {
+        let q = mochi_lyrics::port::track_query_from(title, artist, source_app);
+        if q.title.is_empty() {
             return None;
         }
 
-        let key =
-            mochi_lyrics::port::lyrics_cache_key(clean_artist.to_string(), clean_title.to_string())
-                .ok()?;
+        let key = mochi_lyrics::port::lyrics_cache_key(&q.artist, &q.title);
         let cache_file = self.cache_dir.join(format!("{key}.lrc"));
         if let Some(cached) = Self::try_read_cache(&cache_file) {
             return if cached.is_empty() {
@@ -109,18 +72,18 @@ impl LyricsService {
             };
         }
 
-        let max_diff = if from_browser { f64::MAX } else { 4.0 };
+        let max_diff = if q.from_browser { f64::MAX } else { 4.0 };
         let mut queries = Vec::new();
-        if !clean_artist.is_empty() {
+        if !q.artist.is_empty() {
             queries.push(format!(
                 "https://lrclib.net/api/search?track_name={}&artist_name={}",
-                url_encode(clean_title),
-                url_encode(clean_artist)
+                url_encode(&q.title),
+                url_encode(&q.artist)
             ));
         }
         queries.push(format!(
             "https://lrclib.net/api/search?q={}",
-            url_encode(format!("{clean_artist} {clean_title}").trim())
+            url_encode(format!("{} {}", q.artist, q.title).trim())
         ));
 
         let mut failed = false;
@@ -128,8 +91,8 @@ impl LyricsService {
         for url in queries {
             match http_request("GET", &url, &[], None, 10_000) {
                 Ok(resp) if (200..300).contains(&resp.status) => {
-                    if let Ok(Some(best)) =
-                        mochi_lyrics::port::pick_best_lyrics(resp.body, duration_secs, max_diff)
+                    if let Some(best) =
+                        mochi_lyrics::port::pick_best_lyrics(&resp.body, duration_secs, max_diff)
                     {
                         found_lrc = Some(best);
                         failed = false;

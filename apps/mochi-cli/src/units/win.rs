@@ -453,10 +453,12 @@ impl Drop for HandleGuard {
 }
 
 pub fn send_activity(json: &str, pipe_name: Option<&str>, timeout_ms: u32) -> Option<String> {
-    if pipe_name.is_none() && !is_mochi_running() {
+    let env_pipe = std::env::var("MOCHI_PIPE").ok().filter(|s| !s.is_empty());
+    let effective_pipe = pipe_name.or(env_pipe.as_deref());
+    if effective_pipe.is_none() && !is_mochi_running() {
         return None;
     }
-    let resolved = match pipe_name {
+    let resolved = match effective_pipe {
         Some(n) => n.to_string(),
         None => default_pipe_name()?,
     };

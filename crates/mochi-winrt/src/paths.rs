@@ -1,10 +1,13 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::{Local, NaiveDateTime};
+pub use mochi_store::port::{
+    ClipboardEntryData, FocusData, HudKind, SettingsData, StoreData, TaskData, UpdateData,
+    WaterData,
+};
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
 use windows::Win32::Security::Cryptography::{
@@ -228,21 +231,6 @@ fn dpapi_unprotect_with_entropy(cipher: &[u8], entropy: &[u8]) -> Option<Vec<u8>
     Some(bytes)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum HudKind {
-    Reminder,
-    Volume,
-    Brightness,
-    Power,
-    AudioDevice,
-    CapsLock,
-    KeyboardLayout,
-    Network,
-    Privacy,
-    Weather,
-    Activity,
-}
-
 #[derive(Debug, Clone)]
 pub struct HudMessage {
     pub glyph: String,
@@ -309,358 +297,6 @@ impl Glyphs {
     pub const CLOUD: &str = "\u{E753}";
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct SettingsData {
-    #[serde(default)]
-    pub language: Option<String>,
-    #[serde(default = "d_true")]
-    pub hide_in_fullscreen: bool,
-    #[serde(default = "d_true")]
-    pub hide_from_capture: bool,
-    #[serde(default = "d_140")]
-    pub hover_delay_ms: i32,
-    #[serde(default)]
-    pub calm_motion: bool,
-    #[serde(default = "d_true")]
-    pub use_artwork_accent: bool,
-    #[serde(default)]
-    pub monitor: Option<String>,
-    #[serde(default = "d_true")]
-    pub hotkey_enabled: bool,
-    #[serde(default)]
-    pub jump_hotkey_enabled: bool,
-    #[serde(default)]
-    pub mic_hotkey_enabled: bool,
-    #[serde(default = "d_true")]
-    pub lyrics_enabled: bool,
-    #[serde(default)]
-    pub update_check_enabled: bool,
-    #[serde(default = "d_5")]
-    pub calendar_reminder_minutes: i32,
-    #[serde(default = "d_true")]
-    pub calendar_in_compact: bool,
-    #[serde(default)]
-    pub calendar_ids: Option<Vec<String>>,
-    #[serde(default)]
-    pub tasks_sync_enabled: bool,
-    #[serde(default)]
-    pub tasks_list_id: Option<String>,
-    #[serde(default)]
-    pub tasks_list_name: Option<String>,
-    #[serde(default)]
-    pub weather_enabled: bool,
-    #[serde(default)]
-    pub weather_place: Option<String>,
-    #[serde(default)]
-    pub weather_latitude: Option<f64>,
-    #[serde(default)]
-    pub weather_longitude: Option<f64>,
-    #[serde(default = "d_true")]
-    pub weather_rain_alerts: bool,
-    #[serde(default = "d_true")]
-    pub pray_alerts_enabled: bool,
-    #[serde(default = "d_10")]
-    pub pray_pre_alert_minutes: i32,
-    #[serde(default = "d_kemenag")]
-    pub pray_method: String,
-    #[serde(default)]
-    pub pray_muted: Vec<String>,
-    #[serde(default)]
-    pub pray_place: Option<String>,
-    #[serde(default)]
-    pub pray_latitude: Option<f64>,
-    #[serde(default)]
-    pub pray_longitude: Option<f64>,
-    #[serde(default = "d_true")]
-    pub sounds_enabled: bool,
-    #[serde(default = "d_true")]
-    pub quiet_during_calls: bool,
-    #[serde(default = "d_true")]
-    pub hud_volume: bool,
-    #[serde(default = "d_true")]
-    pub hud_brightness: bool,
-    #[serde(default = "d_true")]
-    pub hud_power: bool,
-    #[serde(default = "d_true")]
-    pub hud_audio_device: bool,
-    #[serde(default = "d_true")]
-    pub hud_caps_lock: bool,
-    #[serde(default = "d_true")]
-    pub hud_keyboard_layout: bool,
-    #[serde(default = "d_true")]
-    pub hud_network: bool,
-    #[serde(default = "d_true")]
-    pub hud_privacy: bool,
-    #[serde(default = "d_true")]
-    pub activities_enabled: bool,
-    #[serde(default)]
-    pub copilot_hooks_initialized: bool,
-    #[serde(default = "d_25")]
-    pub focus_minutes: i32,
-    #[serde(default = "d_5")]
-    pub short_break_minutes: i32,
-    #[serde(default = "d_15")]
-    pub long_break_minutes: i32,
-    #[serde(default = "d_4")]
-    pub sessions_per_cycle: i32,
-    #[serde(default = "d_true")]
-    pub pause_focus_when_away: bool,
-    #[serde(default = "d_120")]
-    pub focus_goal_minutes: i32,
-    #[serde(default = "d_true")]
-    pub companion_enabled: bool,
-    #[serde(default = "d_2")]
-    pub companion_idle_minutes: i32,
-    #[serde(default = "d_10")]
-    pub companion_sleep_minutes: i32,
-    #[serde(default = "d_true")]
-    pub away_summary_enabled: bool,
-}
-
-impl Default for SettingsData {
-    fn default() -> Self {
-        Self {
-            language: None,
-            hide_in_fullscreen: true,
-            hide_from_capture: true,
-            hover_delay_ms: 140,
-            calm_motion: false,
-            use_artwork_accent: true,
-            monitor: None,
-            hotkey_enabled: true,
-            jump_hotkey_enabled: false,
-            mic_hotkey_enabled: false,
-            lyrics_enabled: true,
-            update_check_enabled: false,
-            calendar_reminder_minutes: 5,
-            calendar_in_compact: true,
-            calendar_ids: None,
-            tasks_sync_enabled: false,
-            tasks_list_id: None,
-            tasks_list_name: None,
-            weather_enabled: false,
-            weather_place: None,
-            weather_latitude: None,
-            weather_longitude: None,
-            weather_rain_alerts: true,
-            pray_alerts_enabled: true,
-            pray_pre_alert_minutes: 10,
-            pray_method: "Kemenag".to_string(),
-            pray_muted: Vec::new(),
-            pray_place: None,
-            pray_latitude: None,
-            pray_longitude: None,
-            sounds_enabled: true,
-            quiet_during_calls: true,
-            hud_volume: true,
-            hud_brightness: true,
-            hud_power: true,
-            hud_audio_device: true,
-            hud_caps_lock: true,
-            hud_keyboard_layout: true,
-            hud_network: true,
-            hud_privacy: true,
-            activities_enabled: true,
-            copilot_hooks_initialized: false,
-            focus_minutes: 25,
-            short_break_minutes: 5,
-            long_break_minutes: 15,
-            sessions_per_cycle: 4,
-            pause_focus_when_away: true,
-            focus_goal_minutes: 120,
-            companion_enabled: true,
-            companion_idle_minutes: 2,
-            companion_sleep_minutes: 10,
-            away_summary_enabled: true,
-        }
-    }
-}
-
-impl SettingsData {
-    pub fn shows(&self, kind: HudKind) -> bool {
-        match kind {
-            HudKind::Volume => self.hud_volume,
-            HudKind::Brightness => self.hud_brightness,
-            HudKind::Power => self.hud_power,
-            HudKind::AudioDevice => self.hud_audio_device,
-            HudKind::CapsLock => self.hud_caps_lock,
-            HudKind::KeyboardLayout => self.hud_keyboard_layout,
-            HudKind::Network => self.hud_network,
-            HudKind::Privacy => self.hud_privacy,
-            HudKind::Activity => self.activities_enabled,
-            HudKind::Reminder | HudKind::Weather => true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct WaterData {
-    #[serde(default = "d_2000")]
-    pub goal_ml: i32,
-    #[serde(default = "d_250")]
-    pub cup_ml: i32,
-    #[serde(default = "d_60")]
-    pub reminder_minutes: i32,
-    #[serde(default)]
-    pub reminders_enabled: bool,
-    #[serde(default)]
-    pub last_drink: Option<String>,
-    #[serde(default)]
-    pub days: BTreeMap<String, i32>,
-}
-
-impl Default for WaterData {
-    fn default() -> Self {
-        Self {
-            goal_ml: 2000,
-            cup_ml: 250,
-            reminder_minutes: 60,
-            reminders_enabled: false,
-            last_drink: None,
-            days: BTreeMap::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct FocusData {
-    #[serde(default)]
-    pub days: BTreeMap<String, i32>,
-    #[serde(default)]
-    pub task_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct TaskData {
-    #[serde(default = "d_guid")]
-    pub id: String,
-    #[serde(default)]
-    pub text: String,
-    #[serde(default)]
-    pub done: bool,
-    #[serde(default)]
-    pub due: Option<String>,
-    #[serde(default)]
-    pub due_all_day: bool,
-    #[serde(default)]
-    pub reminded: bool,
-    #[serde(default)]
-    pub google_id: Option<String>,
-    #[serde(default)]
-    pub dirty: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct UpdateData {
-    #[serde(default)]
-    pub last_check: Option<String>,
-    #[serde(default)]
-    pub latest: Option<String>,
-    #[serde(default)]
-    pub announced: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct ClipboardEntryData {
-    #[serde(default)]
-    pub text: String,
-    #[serde(default)]
-    pub pinned: bool,
-    #[serde(default)]
-    pub at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct StoreData {
-    #[serde(default = "d_1")]
-    pub schema_version: i32,
-    #[serde(default)]
-    pub settings: SettingsData,
-    #[serde(default)]
-    pub water: WaterData,
-    #[serde(default)]
-    pub focus: FocusData,
-    #[serde(default)]
-    pub tasks: Vec<TaskData>,
-    #[serde(default)]
-    pub task_deletes: Vec<String>,
-    #[serde(default)]
-    pub shelf: Vec<String>,
-    #[serde(default)]
-    pub clipboard: Vec<ClipboardEntryData>,
-    #[serde(default)]
-    pub updates: UpdateData,
-}
-
-impl Default for StoreData {
-    fn default() -> Self {
-        Self {
-            schema_version: 1,
-            settings: SettingsData::default(),
-            water: WaterData::default(),
-            focus: FocusData::default(),
-            tasks: Vec::new(),
-            task_deletes: Vec::new(),
-            shelf: Vec::new(),
-            clipboard: Vec::new(),
-            updates: UpdateData::default(),
-        }
-    }
-}
-
-fn d_true() -> bool {
-    true
-}
-fn d_1() -> i32 {
-    1
-}
-fn d_2() -> i32 {
-    2
-}
-fn d_4() -> i32 {
-    4
-}
-fn d_5() -> i32 {
-    5
-}
-fn d_10() -> i32 {
-    10
-}
-fn d_15() -> i32 {
-    15
-}
-fn d_25() -> i32 {
-    25
-}
-fn d_60() -> i32 {
-    60
-}
-fn d_120() -> i32 {
-    120
-}
-fn d_140() -> i32 {
-    140
-}
-fn d_250() -> i32 {
-    250
-}
-fn d_2000() -> i32 {
-    2000
-}
-fn d_guid() -> String {
-    "00000000-0000-0000-0000-000000000000".to_string()
-}
-fn d_kemenag() -> String {
-    "Kemenag".to_string()
-}
-
 pub struct AppStore {
     path: PathBuf,
     pub data: StoreData,
@@ -696,27 +332,23 @@ impl AppStore {
         }
         match fs::read_to_string(&path) {
             Ok(raw) => {
-                let raw = raw.trim_start_matches('\u{FEFF}').to_string();
-                if serde_json::from_str::<serde_json::Value>(&raw).is_err() {
-                    let _ = fs::rename(&path, path.with_extension("json.bad"));
-                    return Self {
-                        path,
-                        data: StoreData::default(),
-                        recovered_from_damage: true,
-                        is_new: false,
-                        read_only: false,
-                    };
-                }
-                let norm = mochi_store::port::normalize_store_json(raw)
-                    .ok()
-                    .and_then(|v| {
-                        v.get("NormalizedJson")
-                            .and_then(|s| s.as_str())
-                            .map(str::to_string)
-                    });
-                let data = norm
-                    .and_then(|s| serde_json::from_str::<StoreData>(&s).ok())
-                    .unwrap_or_default();
+                let raw = raw.trim_start_matches('\u{FEFF}');
+                let data = match mochi_store::port::parse_and_normalize_store(raw) {
+                    Ok(d) => d,
+                    Err(_) => {
+                        if serde_json::from_str::<serde_json::Value>(raw).is_err() {
+                            let _ = fs::rename(&path, path.with_extension("json.bad"));
+                            return Self {
+                                path,
+                                data: StoreData::default(),
+                                recovered_from_damage: true,
+                                is_new: false,
+                                read_only: false,
+                            };
+                        }
+                        StoreData::default()
+                    }
+                };
                 Self {
                     path,
                     data,

@@ -2,7 +2,7 @@ use mochi_winrt::lyrics::Lyrics;
 use mochi_winrt::media::MediaState;
 
 use crate::d2d::{D2dFactories, FontKind};
-use crate::features::companion::state::RavenMode;
+use crate::features::companion::state::CompanionMode;
 use crate::state::{COMPACT_MEDIA, NotchApp};
 use crate::theme::{Color, DEFAULT_ACCENT, MONOCHROME_ACCENT};
 
@@ -13,9 +13,9 @@ impl NotchApp {
             .as_deref()
             .unwrap_or(&self.compact_text);
         let has_art = self.artwork_frame.is_some();
-        let show_music_raven = self.music_raven.mode != RavenMode::Still;
+        let show_music_companion = self.music_companion.mode != CompanionMode::Still;
         let left_w: f64 = if has_art { 20.0 } else { 0.0 };
-        let right_w: f64 = if show_music_raven { 24.0 } else { 20.0 };
+        let right_w: f64 = if show_music_companion { 24.0 } else { 20.0 };
         let side = left_w.max(right_w);
         let gap = 6.0;
         let text_w = if let Some(f) = factories {

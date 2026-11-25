@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 
+use mochi_winrt::mochi_water;
 use mochi_winrt::paths::{Glyphs, HudMessage};
 
 use crate::d2d::D2dFactories;
@@ -10,7 +11,7 @@ use crate::state::NotchApp;
 impl NotchApp {
     pub fn water_today_ml(&self) -> i32 {
         let key = Local::now().format("%Y-%m-%d").to_string();
-        self.store.data.water.days.get(&key).copied().unwrap_or(0)
+        mochi_water::port::today_ml(&self.store.data.water, &key)
     }
 
     pub fn water_drink(&mut self, factories: Option<&D2dFactories>) {
@@ -24,19 +25,15 @@ impl NotchApp {
     }
 
     fn water_add(&mut self, ml: i32, factories: Option<&D2dFactories>) {
-        let key = Local::now().format("%Y-%m-%d").to_string();
-        let before = self.water_today_ml();
-        let today = (before + ml).max(0);
-        self.store.data.water.days.insert(key, today);
-        if ml > 0 {
-            self.store.data.water.last_drink =
-                Some(Local::now().format("%Y-%m-%dT%H:%M:%S").to_string());
-        }
+        let now = Local::now();
+        let key = now.format("%Y-%m-%d").to_string();
+        let now_iso = now.format("%Y-%m-%dT%H:%M:%S").to_string();
+        let outcome = mochi_water::port::add_water(&mut self.store.data.water, &key, ml, &now_iso);
         self.store_dirty_at = Some(Instant::now() + Duration::from_millis(500));
         let goal = self.store.data.water.goal_ml;
-        if before < goal && today >= goal {
+        if outcome.goal_reached_now {
             let mut msg = HudMessage::new(Glyphs::WATER, self.lang.strings().water_goal_reached);
-            msg.value = Some(format!("{today}/{goal} ml"));
+            msg.value = Some(format!("{}/{goal} ml", outcome.today_ml));
             msg.level = Some(1.0);
             msg.duration_ms = 4000;
             msg.important = true;

@@ -5,8 +5,8 @@ use mochi_winrt::paths::{Glyphs, HudKind, HudMessage};
 use mochi_winrt::strings::{fmt1, fmt2};
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
-use crate::features::companion::state::RavenMode;
+use crate::features::companion::render::draw_companion_sprite;
+use crate::features::companion::state::CompanionMode;
 use crate::features::weather::render::draw_weather_sprite;
 use crate::features::widgets::render::{draw_icon_view, rounded_rect_geom};
 use crate::state::{NEWS_WIDTH, NotchApp};
@@ -38,14 +38,14 @@ pub(crate) fn draw_compact_view(
 
     let has_media = app.media_state.is_some();
     let has_art = has_media && app.artwork_frame.is_some();
-    let show_clock_raven = app.clock_raven.mode != RavenMode::Still
+    let show_clock_companion = app.clock_companion.mode != CompanionMode::Still
         && !has_media
         && !app.focus.is_active()
         && app.upcoming_text.is_none();
 
     let left_w: f32 = if has_art {
         20.0
-    } else if show_clock_raven {
+    } else if show_clock_companion {
         24.0
     } else {
         0.0
@@ -56,8 +56,8 @@ pub(crate) fn draw_compact_view(
         && !has_media
         && !app.focus.is_active()
         && app.upcoming_text.is_none();
-    let show_music_raven = app.music_raven.mode != RavenMode::Still && has_media;
-    let show_eq = has_media && !show_music_raven;
+    let show_music_companion = app.music_companion.mode != CompanionMode::Still && has_media;
+    let show_eq = has_media && !show_music_companion;
 
     let timer_str = if show_timer {
         let rem = app.focus.remaining();
@@ -84,7 +84,7 @@ pub(crate) fn draw_compact_view(
             .measure_text(&weather_str, FontKind::Ui, 12.0, true, true, 100.0, false)
             .0;
         10.0 + 6.0 + ww
-    } else if show_music_raven {
+    } else if show_music_companion {
         24.0
     } else if show_eq {
         20.0
@@ -110,9 +110,9 @@ pub(crate) fn draw_compact_view(
                 surf.pop_layer();
             }
         }
-    } else if show_left && show_clock_raven {
-        let anim = app.clock_raven.clone();
-        draw_raven_sprite(factories, surf, &anim, inner_x, (h - 20.0) / 2.0, 20.0);
+    } else if show_left && show_clock_companion {
+        let anim = app.clock_companion.clone();
+        draw_companion_sprite(factories, surf, &anim, inner_x, (h - 20.0) / 2.0, 20.0);
     }
 
     let (text_x, text_w) = if inner_w >= 2.0 * (side + gap) + 24.0 {
@@ -224,9 +224,9 @@ pub(crate) fn draw_compact_view(
             false,
             false,
         );
-    } else if show_right && show_music_raven {
-        let anim = app.music_raven.clone();
-        draw_raven_sprite(factories, surf, &anim, rx, (h - 24.0) / 2.0, 24.0);
+    } else if show_right && show_music_companion {
+        let anim = app.music_companion.clone();
+        draw_companion_sprite(factories, surf, &anim, rx, (h - 24.0) / 2.0, 24.0);
     } else if show_right && show_eq {
         let cy = h * 0.5;
         let bw = 2.4_f32;
@@ -250,8 +250,8 @@ pub(crate) fn draw_hud_view(
     h: f32,
 ) {
     let caw = msg.important && !msg.celebrate && msg.kind == HudKind::Reminder;
-    let raven = msg.celebrate || caw;
-    let icon_w = if raven { 26.4 } else { 15.0 };
+    let show_companion = msg.celebrate || caw;
+    let icon_w = if show_companion { 26.4 } else { 15.0 };
     let dots = if !app.privacy_shown() || app.ambient_shown {
         0
     } else {
@@ -305,8 +305,15 @@ pub(crate) fn draw_hud_view(
         TEXT_PRIMARY
     };
 
-    if raven {
-        draw_raven_sprite(factories, surf, &app.hud_raven, x, (h - 26.4) / 2.0, 26.4);
+    if show_companion {
+        draw_companion_sprite(
+            factories,
+            surf,
+            &app.hud_companion,
+            x,
+            (h - 26.4) / 2.0,
+            26.4,
+        );
     } else {
         draw_icon_view(
             factories,
@@ -385,22 +392,22 @@ pub(crate) fn draw_news_view(
     let y = 12.0;
     let ease = 1.0 - (1.0 - app.news_flight_t as f32).powi(3);
     let shift_x = (NEWS_WIDTH as f32) * (1.0 - ease);
-    let raven_s = 24.0 * 2.4;
-    draw_raven_sprite(
+    let companion_s = 24.0 * 2.4;
+    draw_companion_sprite(
         factories,
         surf,
-        &app.news_raven,
+        &app.news_companion,
         x + shift_x,
         y + 2.0,
-        raven_s,
+        companion_s,
     );
 
     let body_op = ((app.news_flight_t as f32 - 0.6) / 0.4).clamp(0.0, 1.0);
     if body_op <= 0.001 {
         return;
     }
-    let bx = x + raven_s + 16.0;
-    let bw = (w - 40.0 - raven_s - 16.0).max(40.0);
+    let bx = x + companion_s + 16.0;
+    let bw = (w - 40.0 - companion_s - 16.0).max(40.0);
     let mins = (report.duration.as_secs() / 60).max(1);
     let dur_str = if mins >= 60 {
         format!("{}h{:02}", mins / 60, mins % 60)

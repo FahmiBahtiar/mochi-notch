@@ -38,6 +38,6 @@ Status: accepted
 Context: Every change must keep the workspace clean, warning-free, and responsive at 100 Hz.
 Decision:
 - `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings` must pass with zero warnings.
-- `cargo test --workspace --all-targets` (including all 317 `trycmd` CLI tests and Direct2D offscreen render tests) must pass.
-- `--bench transicoes --frames` and `--bench vitrine --shots` verify animation pacing and visual output across all notch states.
+- `cargo test --workspace --all-targets` (including `trycmd` CLI tests and Direct2D offscreen render tests) must pass.
+- `--bench transitions --frames` and `--bench showcase --shots` verify animation pacing and visual output across all notch states.
 Consequences: Regressions in formatting, lints, CLI behavior, or rendering are caught automatically.

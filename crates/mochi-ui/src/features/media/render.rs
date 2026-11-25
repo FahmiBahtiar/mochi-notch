@@ -2,7 +2,7 @@ use chrono::{Local, Timelike};
 use windows_numerics::{Matrix3x2, Vector2};
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
+use crate::features::companion::render::draw_companion_sprite;
 use crate::features::weather::render::draw_weather_sprite;
 use crate::features::widgets::render::{draw_circle_button, draw_icon_button, rounded_rect_geom};
 use crate::render::{HitMap, RectF};
@@ -440,8 +440,8 @@ pub(crate) fn draw_media_page(
         let tw = factories
             .measure_text(&time_s, FontKind::Display, 36.0, true, true, 200.0, false)
             .0;
-        let raven_s = 24.0 * 2.8;
-        let row_w = tw + 14.0 + raven_s;
+        let companion_s = 24.0 * 2.8;
+        let row_w = tw + 14.0 + companion_s;
         let has_weather = app.weather_report.is_some();
         let block_h = if has_weather { 96.0 } else { 70.0 };
         let by = py + (ph - 16.0 - block_h) / 2.0;
@@ -464,13 +464,13 @@ pub(crate) fn draw_media_page(
             false,
             false,
         );
-        draw_raven_sprite(
+        draw_companion_sprite(
             factories,
             surf,
-            &app.idle_raven,
+            &app.idle_companion,
             rx + tw + 14.0,
-            by + 48.0 - 6.0 - raven_s,
-            raven_s,
+            by + 48.0 - 6.0 - companion_s,
+            companion_s,
         );
         surf.draw_text(
             factories,

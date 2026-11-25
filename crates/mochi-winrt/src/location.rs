@@ -15,7 +15,7 @@ pub fn locate_once() -> Option<(f64, f64)> {
     let _ = locator.SetDesiredAccuracyInMeters(&acc);
     let pos = locator.GetGeopositionAsync().ok()?.join().ok()?;
     let pt = pos.Coordinate().ok()?.Point().ok()?.Position().ok()?;
-    let lat = mochi_weather::port::coarse_coordinate(pt.Latitude).ok()?;
-    let lon = mochi_weather::port::coarse_coordinate(pt.Longitude).ok()?;
+    let lat = mochi_weather::port::coarse_coordinate(pt.Latitude);
+    let lon = mochi_weather::port::coarse_coordinate(pt.Longitude);
     Some((lat, lon))
 }

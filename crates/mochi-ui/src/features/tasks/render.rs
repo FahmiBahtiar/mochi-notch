@@ -1,6 +1,6 @@
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
-use crate::features::companion::state::RavenAnimator;
+use crate::features::companion::render::draw_companion_sprite;
+use crate::features::companion::state::CompanionAnimator;
 use crate::features::widgets::render::{draw_icon_button, draw_undo_toast};
 use crate::render::{HitMap, RectF};
 use crate::state::{HoverTarget, NotchApp};
@@ -32,9 +32,9 @@ pub(crate) fn draw_tasks_page(
 
     if app.store.data.tasks.is_empty() {
         let cy = ty + (list_h - 64.0) / 2.0;
-        let mut sleep_anim = RavenAnimator::default();
+        let mut sleep_anim = CompanionAnimator::default();
         sleep_anim.sleep();
-        draw_raven_sprite(
+        draw_companion_sprite(
             factories,
             surf,
             &sleep_anim,

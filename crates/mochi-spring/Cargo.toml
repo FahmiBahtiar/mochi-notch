@@ -7,9 +7,5 @@ license.workspace = true
 publish.workspace = true
 description = "Damped spring physics and frame opacity cross-fade math for Mochi"
 
-[dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
-
 [lints]
 workspace = true

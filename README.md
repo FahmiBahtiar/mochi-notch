@@ -148,7 +148,7 @@ Measured on Windows 11 (8 logical cores) using the size-optimized release LTO bu
 | **Memory (Active / Idle)** | **`8.68 MB`** / **`0.29 MB`** | Task Manager Private Working Set during 100 Hz transitions vs idle-trimmed (`49` DLLs, `232` handles) |
 | **CPU (Active / Idle)** | **`0.3%`** / **`~0%`** | Active cursor-tracking gaze; drops to `0%` via `GetMessageW` when settled |
 | **Disk & Network** | **`0 MB/s`** · **`0 Mbps`** | Zero background polling; network runs only on scheduled syncs |
-| **Direct2D Render Work** | **`4.13 ms`** avg · **`6.18 ms`** p95 | Measured across `3,527` frames (`12` full transition cycles via `--bench transicoes`) |
+| **Direct2D Render Work** | **`4.13 ms`** avg · **`6.18 ms`** p95 | Measured across `3,527` frames (`12` full transition cycles via `--bench transitions`) |
 | **Frame Interval** | **`10.21 ms`** avg | Locked to DWM composition vblank (`DwmFlush()`) |
 
 <details>
@@ -156,13 +156,13 @@ Measured on Windows 11 (8 logical cores) using the size-optimized release LTO bu
 
 | Transition | Frames | Avg Work | p95 Work | Avg Interval |
 | :--- | :---: | :---: | :---: | :---: |
-| `hud-sair` (HUD exit) | 553 | `3.12 ms` | `4.41 ms` | `9.96 ms` |
+| `hud-exit` (HUD exit) | 553 | `3.12 ms` | `4.41 ms` | `9.96 ms` |
 | `hud` (HUD enter) | 591 | `3.60 ms` | `5.12 ms` | `9.93 ms` |
-| `fechar` (Collapse) | 608 | `3.60 ms` | `5.13 ms` | `9.93 ms` |
-| `aba-tarefas` (Tasks tab) | 358 | `4.39 ms` | `6.95 ms` | `10.24 ms` |
-| `aba-agenda` (Agenda tab) | 377 | `4.86 ms` | `7.64 ms` | `10.32 ms` |
-| `aba-midia` (Media + Lyrics) | 354 | `4.89 ms` | `6.93 ms` | `10.36 ms` |
-| `abrir` (Expand) | 686 | `4.91 ms` | `7.67 ms` | `10.77 ms` |
+| `close` (Collapse) | 608 | `3.60 ms` | `5.13 ms` | `9.93 ms` |
+| `tab-tasks` (Tasks tab) | 358 | `4.39 ms` | `6.95 ms` | `10.24 ms` |
+| `tab-agenda` (Agenda tab) | 377 | `4.86 ms` | `7.64 ms` | `10.32 ms` |
+| `tab-media` (Media + Lyrics) | 354 | `4.89 ms` | `6.93 ms` | `10.36 ms` |
+| `open` (Expand) | 686 | `4.91 ms` | `7.67 ms` | `10.77 ms` |
 
 </details>
 

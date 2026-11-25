@@ -4,8 +4,8 @@ use mochi_winrt::notifications::NotificationAccess;
 use mochi_winrt::strings::fmt1;
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
-use crate::features::companion::render::draw_raven_sprite;
-use crate::features::companion::state::RavenAnimator;
+use crate::features::companion::render::draw_companion_sprite;
+use crate::features::companion::state::CompanionAnimator;
 use crate::features::widgets::render::{draw_icon_button, draw_icon_view, draw_pill_button};
 use crate::render::{HitMap, RectF};
 use crate::state::{HoverTarget, NotchApp};
@@ -35,11 +35,11 @@ pub(crate) fn draw_notifications_page(
     let list_w = (nw - 240.0).max(240.0);
     let list_h = nh;
 
-    if app.notifications.is_empty() {
+    if app.notifications.items.is_empty() {
         let cy = ny + (list_h - 64.0) / 2.0;
-        let mut perch = RavenAnimator::default();
+        let mut perch = CompanionAnimator::default();
         perch.perch();
-        draw_raven_sprite(
+        draw_companion_sprite(
             factories,
             surf,
             &perch,
@@ -75,7 +75,7 @@ pub(crate) fn draw_notifications_page(
             });
         }
         let row_h = 42.0_f32;
-        let total_h = (app.notifications.len() as f32) * row_h;
+        let total_h = (app.notifications.items.len() as f32) * row_h;
         let max_scroll = (total_h - list_h).max(0.0) as f64;
         app.notifications_scroll = app.notifications_scroll.clamp(0.0, max_scroll);
         let scroll = app.notifications_scroll as f32;
@@ -102,7 +102,7 @@ pub(crate) fn draw_notifications_page(
         if mask.is_some() {
             surf.push_layer(nx, ny, list_w, list_h, 1.0, None, mask.as_ref());
         }
-        for (i, item) in app.notifications.iter().enumerate() {
+        for (i, item) in app.notifications.items.iter().enumerate() {
             let ry = ny - scroll + (i as f32) * row_h;
             if ry + row_h < ny || ry > ny + list_h {
                 continue;

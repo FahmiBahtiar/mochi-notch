@@ -1,20 +1,6 @@
-//! The Rust port of `gaze/`.
+//! Pure companion eye gaze, blink curves, and visor eye geometry.
 
 #![forbid(unsafe_code)]
-
-use serde_json::{Value, json};
-
-fn out_num(x: f64) -> Value {
-    if x.is_nan() {
-        json!({"$num": "NaN"})
-    } else if x.is_infinite() {
-        json!({"$num": if x > 0.0 { "Infinity" } else { "-Infinity" }})
-    } else if x == 0.0 && x.is_sign_negative() {
-        json!({"$num": "-0"})
-    } else {
-        json!(x)
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct EyeGazeController {
@@ -78,6 +64,56 @@ impl EyeGazeController {
 
     pub fn is_blinking(&self) -> bool {
         self.blink_elapsed >= 0.0
+    }
+
+    pub fn is_animating(&self, sleeping: bool, reduced_motion: bool) -> bool {
+        if reduced_motion {
+            return false;
+        }
+        if sleeping {
+            return true;
+        }
+        self.blink_elapsed >= 0.0
+            || self.attentive_cooldown > 0.0
+            || self.is_tracking_cursor
+            || (self.norm_x - self.target_x).abs() > 0.002
+            || (self.norm_y - self.target_y).abs() > 0.002
+            || (self.scale_x - 1.0).abs() > 0.002
+            || (self.scale_y - 1.0).abs() > 0.002
+    }
+
+    pub fn advance_idle(&mut self, dt_seconds: f64, cursor_screen_px: Option<(f64, f64)>) -> bool {
+        let dt = dt_seconds.clamp(0.0, 1.0);
+        if let Some((mx, my)) = cursor_screen_px {
+            if !self.has_mouse_sample {
+                self.last_mouse_x = mx;
+                self.last_mouse_y = my;
+                self.has_mouse_sample = true;
+                self.mouse_still_seconds = 0.0;
+                self.is_tracking_cursor = true;
+                return true;
+            }
+            if (mx - self.last_mouse_x).abs() > 2.0 || (my - self.last_mouse_y).abs() > 2.0 {
+                self.last_mouse_x = mx;
+                self.last_mouse_y = my;
+                self.mouse_still_seconds = 0.0;
+                self.is_tracking_cursor = true;
+                return true;
+            }
+        }
+        self.mouse_still_seconds += dt;
+        self.glance_cooldown -= dt;
+        self.blink_cooldown -= dt;
+        let mut woke = false;
+        if self.glance_cooldown <= 0.0 {
+            self.pick_autonomous_glance();
+            woke = true;
+        }
+        if self.blink_cooldown <= 0.0 {
+            self.trigger_blink(false);
+            woke = true;
+        }
+        woke
     }
 
     pub fn trigger_blink(&mut self, force_double: bool) {
@@ -292,90 +328,25 @@ fn clean_num(x: f64, default: f64) -> f64 {
     }
 }
 
-/// Port of `SimulateCursorGaze` (`gaze/GazeUnit.cs:33`).
-#[expect(clippy::too_many_arguments, reason = "matches C# facade signature")]
-pub fn simulate_cursor_gaze(
-    mut dt_seconds: f64,
-    sleeping: bool,
-    reduced_motion: bool,
-    mut cursor_x: f64,
-    mut cursor_y: f64,
-    mut offset_x: f64,
-    mut offset_y: f64,
-    mut sprite_y: f64,
-    steps: i64,
-) -> Result<Vec<Value>, String> {
-    dt_seconds = clean_num(dt_seconds, 0.033);
-    cursor_x = clean_num(cursor_x, 0.0);
-    cursor_y = clean_num(cursor_y, 0.0);
-    offset_x = clean_num(offset_x, 0.0);
-    offset_y = clean_num(offset_y, 0.0);
-    sprite_y = clean_num(sprite_y, 15.0);
-    let steps = steps.clamp(1, 60) as usize;
-
-    let mut gaze = EyeGazeController::new(42);
-    let mut result = Vec::with_capacity(steps);
-    for i in 0..steps {
-        let cx = cursor_x + (i as f64) * 3.0;
-        let ox = offset_x + (i as f64) * 3.0;
-        gaze.step(
-            dt_seconds,
-            sleeping,
-            reduced_motion,
-            Some((cx, cursor_y)),
-            Some((ox, offset_y)),
-            sprite_y,
-        );
-        result.push(json!({
-            "NormX": out_num(gaze.norm_x),
-            "NormY": out_num(gaze.norm_y),
-            "ScaleX": out_num(gaze.scale_x),
-            "ScaleY": out_num(gaze.scale_y),
-            "IsBlinking": gaze.is_blinking(),
-            "IsTrackingCursor": gaze.is_tracking_cursor,
-        }));
-    }
-    Ok(result)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EyeRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub radius: f64,
+    pub halo_out: f64,
+    pub halo_in: f64,
 }
 
-/// Port of `SimulateBlink` (`gaze/GazeUnit.cs:65`).
-pub fn simulate_blink(
-    double_blink: bool,
-    mut dt_seconds: f64,
-    steps: i64,
-) -> Result<Vec<Value>, String> {
-    if dt_seconds.is_nan() || dt_seconds.is_infinite() || dt_seconds <= 0.0 {
-        dt_seconds = 0.016;
-    }
-    dt_seconds = dt_seconds.clamp(0.005, 0.05);
-    let steps = steps.clamp(1, 40) as usize;
-
-    let mut gaze = EyeGazeController::new(42);
-    gaze.trigger_blink(double_blink);
-    let mut result = Vec::with_capacity(steps);
-    for i in 0..steps {
-        gaze.step(
-            dt_seconds,
-            false,
-            false,
-            Some((100.0 + (i as f64) * 3.0, 100.0)),
-            Some((0.0, 85.0)),
-            15.0,
-        );
-        result.push(json!({
-            "NormX": out_num(gaze.norm_x),
-            "NormY": out_num(gaze.norm_y),
-            "ScaleX": out_num(gaze.scale_x),
-            "ScaleY": out_num(gaze.scale_y),
-            "IsBlinking": gaze.is_blinking(),
-            "IsTrackingCursor": gaze.is_tracking_cursor,
-        }));
-    }
-    Ok(result)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RoboVisorEyes {
+    pub left: EyeRect,
+    pub right: EyeRect,
+    pub opacity: f64,
 }
 
-/// Port of `ComputeRoboVisorEyes` (`gaze/GazeUnit.cs:82`).
-#[expect(clippy::too_many_arguments, reason = "matches C# facade signature")]
+#[expect(clippy::too_many_arguments, reason = "visor eye layout parameters")]
 pub fn compute_robo_visor_eyes(
     mut width: f64,
     mut height: f64,
@@ -385,7 +356,7 @@ pub fn compute_robo_visor_eyes(
     mut eye_scale_y: f64,
     dim: bool,
     is_sleeping: bool,
-) -> Result<Value, String> {
+) -> RoboVisorEyes {
     if width.is_nan() || width.is_infinite() || width <= 0.0 {
         width = 120.0;
     }
@@ -424,138 +395,27 @@ pub fn compute_robo_visor_eyes(
     let halo_out_y = (base_eye_h * 0.35).min(2.0);
     let halo_in_y = (base_eye_h * 0.2).min(1.0);
 
-    Ok(json!({
-        "Left": {
-            "X": out_num(left_x),
-            "Y": out_num(eye_y),
-            "Width": out_num(left_w),
-            "Height": out_num(base_eye_h),
-            "Radius": out_num(left_radius),
-            "HaloOut": out_num(halo_out_y),
-            "HaloIn": out_num(halo_in_y),
+    RoboVisorEyes {
+        left: EyeRect {
+            x: left_x,
+            y: eye_y,
+            width: left_w,
+            height: base_eye_h,
+            radius: left_radius,
+            halo_out: halo_out_y,
+            halo_in: halo_in_y,
         },
-        "Right": {
-            "X": out_num(right_x),
-            "Y": out_num(eye_y),
-            "Width": out_num(right_w),
-            "Height": out_num(base_eye_h),
-            "Radius": out_num(right_radius),
-            "HaloOut": out_num(halo_out_y),
-            "HaloIn": out_num(halo_in_y),
+        right: EyeRect {
+            x: right_x,
+            y: eye_y,
+            width: right_w,
+            height: base_eye_h,
+            radius: right_radius,
+            halo_out: halo_out_y,
+            halo_in: halo_in_y,
         },
-        "Opacity": if dim || is_sleeping { 0.55 } else { 1.0 },
-    }))
-}
-
-/// Port of `ComputeNotchGeometry` (`gaze/GazeUnit.cs:132`).
-pub fn compute_notch_geometry(
-    mut width: f64,
-    mut height: f64,
-    mut radius: f64,
-) -> Result<Value, String> {
-    width = clean_num(width, 120.0).max(24.0);
-    height = clean_num(height, 30.0).max(14.0);
-    radius = clean_num(radius, 15.0).clamp(0.0, width.min(height) / 2.0);
-
-    let e = 8.0;
-    let ear_h = 6.0;
-    Ok(json!({
-        "TotalWidth": out_num(width + 2.0 * e),
-        "Height": out_num(height),
-        "Radius": out_num(radius),
-        "Ear": e,
-        "EarHeight": ear_h,
-        "RightEarCp1X": out_num(width + e + 0.55 * e),
-        "RightEarCp1Y": 0.0,
-        "RightEarCp2X": out_num(width + e),
-        "RightEarCp2Y": 0.45 * ear_h,
-        "RightEarEndX": out_num(width + e),
-        "RightEarEndY": ear_h,
-        "BottomRightArcEndX": out_num(width + e - radius),
-        "BottomRightArcEndY": out_num(height),
-        "BottomLeftLineEndX": out_num(e + radius),
-        "BottomLeftLineEndY": out_num(height),
-        "BottomLeftArcEndX": e,
-        "BottomLeftArcEndY": out_num(height - radius),
-        "LeftEarCp1X": e,
-        "LeftEarCp1Y": 0.45 * ear_h,
-        "LeftEarCp2X": 0.45 * e,
-        "LeftEarCp2Y": 0.0,
-    }))
-}
-
-/// Port of `ComputeSoftShadowSlices` (`gaze/GazeUnit.cs:159`).
-pub fn compute_soft_shadow_slices(
-    mut width: f64,
-    mut height: f64,
-    mut blur_radius: f64,
-    mut depth: f64,
-) -> Result<Vec<Value>, String> {
-    if width.is_nan() || width.is_infinite() || width < 0.0 {
-        width = 120.0;
+        opacity: if dim || is_sleeping { 0.55 } else { 1.0 },
     }
-    if height.is_nan() || height.is_infinite() || height < 0.0 {
-        height = 30.0;
-    }
-    if blur_radius.is_nan() || blur_radius.is_infinite() || blur_radius < 0.0 {
-        blur_radius = 20.0;
-    }
-    depth = clean_num(depth, 4.0);
-    blur_radius = blur_radius.min(100.0);
-
-    const CORNER: f64 = 20.0;
-    const MIDDLE: i32 = 2;
-    let pad = blur_radius.ceil();
-    let corner_int = (pad + CORNER) as i32;
-    let corner = pad + CORNER;
-
-    let starts = [0, corner_int, corner_int + MIDDLE];
-    let lengths = [corner_int, MIDDLE, corner_int];
-
-    let outer_left = -pad;
-    let outer_top = -pad + depth;
-    let outer_width = width + 2.0 * pad;
-    let outer_height = height + 2.0 * pad;
-    let cx = corner.min(outer_width / 2.0);
-    let cy = corner.min(outer_height / 2.0);
-    let xs = [
-        outer_left,
-        outer_left + cx,
-        outer_left + outer_width - cx,
-        outer_left + outer_width,
-    ];
-    let ys = [
-        outer_top,
-        outer_top + cy,
-        outer_top + outer_height - cy,
-        outer_top + outer_height,
-    ];
-
-    let mut result = Vec::new();
-    for row in 0..3 {
-        for col in 0..3 {
-            if row == 1 && col == 1 {
-                continue;
-            }
-            let w = xs[col + 1] - xs[col];
-            let h = ys[row + 1] - ys[row];
-            if w > 0.0 && h > 0.0 {
-                result.push(json!({
-                    "Row": row,
-                    "Col": col,
-                    "SrcX": starts[col] as f64,
-                    "SrcY": starts[row] as f64,
-                    "SrcW": lengths[col] as f64,
-                    "SrcH": lengths[row] as f64,
-                    "DstX": out_num(xs[col]),
-                    "DstY": out_num(ys[row]),
-                    "DstW": out_num(w),
-                    "DstH": out_num(h),
-                }));
-            }
-        }
-    }
-    Ok(result)
 }
 
 #[cfg(test)]
@@ -564,15 +424,79 @@ mod tests {
 
     #[test]
     fn cursor_gaze_tracks_and_clamps() {
-        let steps = simulate_cursor_gaze(0.033, false, false, 500.0, 500.0, 400.0, 200.0, 15.0, 10)
-            .unwrap();
-        assert_eq!(steps.len(), 10);
-        assert_eq!(steps[0]["IsTrackingCursor"], true);
+        let mut gaze = EyeGazeController::new(42);
+        gaze.step(
+            0.033,
+            false,
+            false,
+            Some((500.0, 500.0)),
+            Some((400.0, 200.0)),
+            15.0,
+        );
+        assert!(gaze.is_tracking_cursor);
+        assert!(gaze.norm_x.abs() <= 1.0);
+        assert!(gaze.norm_y.abs() <= 1.0);
     }
 
     #[test]
-    fn shadow_slices_for_closed_notch() {
-        let slices = compute_soft_shadow_slices(120.0, 30.0, 20.0, 4.0).unwrap();
-        assert_eq!(slices.len(), 6);
+    fn visor_eyes_dim_when_sleeping() {
+        let eyes = compute_robo_visor_eyes(120.0, 30.0, 0.0, 0.0, 1.0, 1.0, false, true);
+        assert_eq!(eyes.opacity, 0.55);
+        assert!(eyes.left.x < eyes.right.x);
+    }
+
+    #[test]
+    fn gaze_settles_when_still_and_wakes_on_cursor_or_blink() {
+        let mut gaze = EyeGazeController::new(7);
+        let mut settled = false;
+        for _ in 0..200 {
+            gaze.step(
+                0.033,
+                false,
+                false,
+                Some((100.0, 100.0)),
+                Some((0.0, 0.0)),
+                15.0,
+            );
+            if !gaze.is_animating(false, false) {
+                settled = true;
+                break;
+            }
+        }
+        assert!(settled, "gaze should settle when cursor stays still");
+
+        // Still cursor does not wake until cooldown expires
+        assert!(!gaze.advance_idle(0.05, Some((100.0, 100.0))));
+        assert!(!gaze.is_animating(false, false));
+
+        // Moving cursor wakes immediately
+        assert!(gaze.advance_idle(0.05, Some((140.0, 100.0))));
+        assert!(gaze.is_animating(false, false));
+
+        // Settle again, then advance until blink/glance wakes it
+        let mut settled_again = false;
+        for _ in 0..200 {
+            gaze.step(
+                0.033,
+                false,
+                false,
+                Some((140.0, 100.0)),
+                Some((0.0, 0.0)),
+                15.0,
+            );
+            if !gaze.is_animating(false, false) {
+                settled_again = true;
+                break;
+            }
+        }
+        assert!(settled_again);
+        let mut woke = false;
+        for _ in 0..60 {
+            if gaze.advance_idle(0.1, Some((140.0, 100.0))) {
+                woke = true;
+                break;
+            }
+        }
+        assert!(woke);
     }
 }

@@ -1,9 +1,9 @@
 use std::time::{Duration, Instant};
 
 use chrono::NaiveDateTime;
-use serde_json::Value;
 
 use mochi_winrt::mochi_activities;
+use mochi_winrt::mochi_activities::port::{ActivityOp, ActivityState};
 use mochi_winrt::monitors::Monitors;
 use mochi_winrt::native::focus_host_window;
 use mochi_winrt::paths::{Glyphs, HudKind, HudMessage};
@@ -235,24 +235,13 @@ impl NotchApp {
         }
         self.activity_requests.push_back(now);
 
-        let Ok(req) = mochi_activities::port::parse_activity_request(line.to_string()) else {
-            return "error: invalid request".to_string();
+        let req = match mochi_activities::port::parse_activity_request(line) {
+            Ok(r) => r,
+            Err(err) => return format!("error: {err}"),
         };
-        if req.get("Ok").and_then(Value::as_bool) != Some(true) {
-            let err = req
-                .get("Error")
-                .and_then(Value::as_str)
-                .unwrap_or("invalid");
-            return format!("error: {err}");
-        }
-        let op = req.get("Op").and_then(Value::as_str).unwrap_or("Set");
-        let id = req
-            .get("Id")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+        let id = req.id;
 
-        if op == "End" {
+        if req.op == ActivityOp::End {
             if let Some(pos) = self.activities.iter().position(|a| a.id == id) {
                 self.activities.remove(pos);
                 self.update_bubble();
@@ -267,23 +256,16 @@ impl NotchApp {
         }
         let prev = existing_idx.map(|i| self.activities[i].clone());
         let title = req
-            .get("Title")
-            .and_then(Value::as_str)
+            .title
             .filter(|s| !s.is_empty())
-            .map(str::to_string)
             .or_else(|| prev.as_ref().map(|p| p.title.clone()));
         let Some(title) = title else {
             return "error: no activity with this id (it may have ended or expired); send --title to create it".to_string();
         };
 
-        let state = req
-            .get("State")
-            .and_then(Value::as_str)
-            .unwrap_or("Running")
-            .to_string();
-        let phrase = req.get("Phrase").and_then(Value::as_str);
+        let state = req.state.as_str().to_string();
         let s = self.lang.strings();
-        let phrase_text = phrase.map(|p| match p {
+        let phrase_text = req.phrase.as_deref().map(|p| match p {
             "permission" => s.activity_permission,
             "waiting" => s.activity_waiting,
             "done" => s.activity_done,
@@ -291,36 +273,25 @@ impl NotchApp {
             _ => s.activity_working,
         });
         let text = req
-            .get("Text")
-            .and_then(Value::as_str)
-            .map(str::to_string)
+            .text
             .or_else(|| phrase_text.map(str::to_string))
             .or_else(|| prev.as_ref().and_then(|p| p.text.clone()));
         let icon = req
-            .get("Icon")
-            .and_then(Value::as_str)
-            .map(str::to_string)
+            .icon
             .or_else(|| prev.as_ref().map(|p| p.icon.clone()))
             .unwrap_or_else(|| "activity".to_string());
-        let progress = if state == "Done" {
+        let progress = if req.state == ActivityState::Done {
             None
         } else {
-            req.get("Progress")
-                .and_then(Value::as_f64)
+            req.progress
                 .or_else(|| prev.as_ref().and_then(|p| p.progress))
         };
-        let ttl_secs = match state.as_str() {
-            "Done" => 12.0,
-            "Attention" | "Failed" => 3600.0,
-            _ => req
-                .get("TtlSeconds")
-                .and_then(Value::as_f64)
-                .unwrap_or(600.0),
+        let ttl_secs = match req.state {
+            ActivityState::Done => 12.0,
+            ActivityState::Attention | ActivityState::Failed => 3600.0,
+            ActivityState::Running => req.ttl_seconds.unwrap_or(600.0),
         };
-        let window = match (
-            req.get("WindowHandle").and_then(Value::as_i64),
-            req.get("WindowPid").and_then(Value::as_i64),
-        ) {
+        let window = match (req.window_handle, req.window_pid) {
             (Some(h), Some(p)) => Some((h, p as i32)),
             _ => prev.as_ref().and_then(|p| p.window),
         };

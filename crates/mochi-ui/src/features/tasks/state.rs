@@ -1,16 +1,25 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{Local, NaiveDateTime, Timelike};
-use serde_json::{Value, json};
 
-use mochi_winrt::google::GoogleAuth;
 use mochi_winrt::mochi_tasks;
+use mochi_winrt::mochi_tasks::port::{LocalTaskInput, RemoteTaskInput, parse_dt};
 use mochi_winrt::paths::TaskData;
-use mochi_winrt::tasks::{fetch_google_task_lists, fetch_google_tasks};
+use mochi_winrt::tasks::{RemoteTask, TaskListInfo};
 
 use crate::features::shelf::state::{UndoKind, UndoState};
 use crate::state::NotchApp;
+
+static NEXT_TASK_SEQ: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn next_task_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let seq = NEXT_TASK_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{nanos:020x}-{seq:08x}")
+}
 
 impl NotchApp {
     pub fn add_task(&mut self, raw: &str) {
@@ -18,32 +27,17 @@ impl NotchApp {
         if trimmed.is_empty() {
             return;
         }
-        let res = mochi_tasks::port::simulate_task_list(Some(vec![json!({
-            "Op": "add",
-            "Text": trimmed,
-            "Index": 0,
-        })]));
-        let (text, due) = if let Ok(list) = res
-            && let Some(first) = list.first()
-        {
-            let t = first
-                .get("Text")
-                .and_then(Value::as_str)
-                .unwrap_or(trimmed)
-                .to_string();
-            let d = first
-                .get("DueIso")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            (t, d)
+        let parsed = mochi_tasks::port::parse_task_input(trimmed, Local::now().naive_local());
+        let text = if parsed.text.is_empty() {
+            trimmed.to_string()
         } else {
-            (trimmed.to_string(), None)
+            parsed.text
         };
+        let due = parsed
+            .due
+            .map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string());
         let idx = self.store.data.tasks.iter().take_while(|t| !t.done).count();
-        let id = format!(
-            "{:032x}",
-            Instant::now().elapsed().as_nanos() ^ (self.store.data.tasks.len() as u128 + 1)
-        );
+        let id = next_task_id();
         self.store.data.tasks.insert(
             idx,
             TaskData {
@@ -128,90 +122,59 @@ impl NotchApp {
         }
     }
 
-    pub fn refresh_google_tasks_sync(&mut self) {
-        if self.tasks_syncing || !self.store.data.settings.tasks_sync_enabled {
-            return;
-        }
-        self.tasks_syncing = true;
-        let auth = Arc::clone(&self.google_auth);
-        if let Ok(mut guard) = auth.lock()
-            && guard.is_signed_in()
-            && guard.has_scopes(&[GoogleAuth::TASKS_SCOPE])
-            && let Ok(lists) = fetch_google_task_lists(&mut guard)
-        {
-            self.task_lists = lists;
-            let list_id = self
-                .store
-                .data
-                .settings
-                .tasks_list_id
-                .clone()
-                .or_else(|| self.task_lists.first().map(|l| l.id.clone()));
-            if let Some(lid) = list_id {
-                self.store.data.settings.tasks_list_id = Some(lid.clone());
-                if let Ok(remote) = fetch_google_tasks(&mut guard, &lid) {
-                    let local_json: Vec<Value> = self
-                        .store
-                        .data
-                        .tasks
-                        .iter()
-                        .map(|t| {
-                            json!({
-                                "Text": t.text,
-                                "Done": t.done,
-                                "DueIso": t.due,
-                                "DueAllDay": t.due_all_day,
-                                "GoogleId": t.google_id,
-                                "Dirty": t.dirty,
-                            })
-                        })
-                        .collect();
-                    let remote_json: Vec<Value> = remote
-                        .iter()
-                        .map(|r| {
-                            json!({
-                                "Id": r.id,
-                                "Title": r.title,
-                                "Done": r.done,
-                                "DueDateIso": r.due_date.map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string()),
-                            })
-                        })
-                        .collect();
-                    if let Ok(merged) = mochi_tasks::port::apply_remote_tasks(
-                        Some(local_json),
-                        Some(remote_json),
-                        Some(self.store.data.task_deletes.clone()),
-                    ) {
-                        self.store.data.tasks = merged
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, v)| TaskData {
-                                id: format!("sync-{i}"),
-                                text: v
-                                    .get("Text")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string(),
-                                done: v.get("Done").and_then(Value::as_bool).unwrap_or(false),
-                                due: v.get("DueIso").and_then(Value::as_str).map(str::to_string),
-                                due_all_day: v
-                                    .get("DueAllDay")
-                                    .and_then(Value::as_bool)
-                                    .unwrap_or(false),
-                                reminded: false,
-                                google_id: v
-                                    .get("GoogleId")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string),
-                                dirty: v.get("Dirty").and_then(Value::as_bool).unwrap_or(false),
-                            })
-                            .collect();
-                        self.tasks_last_synced = Some(Local::now().naive_local());
-                        self.tasks_error = None;
-                    }
-                }
-            }
-        }
-        self.tasks_syncing = false;
+    pub fn apply_remote_tasks_snapshot(
+        &mut self,
+        lists: Vec<TaskListInfo>,
+        lid: String,
+        remote: &[RemoteTask],
+    ) {
+        self.task_lists = lists;
+        self.store.data.settings.tasks_list_id = Some(lid);
+        let local_inputs: Vec<LocalTaskInput> = self
+            .store
+            .data
+            .tasks
+            .iter()
+            .map(|t| LocalTaskInput {
+                id: t.id.clone(),
+                text: t.text.clone(),
+                done: t.done,
+                due: t.due.as_deref().and_then(parse_dt),
+                due_all_day: t.due_all_day,
+                reminded: t.reminded,
+                google_id: t.google_id.clone(),
+                dirty: t.dirty,
+            })
+            .collect();
+        let remote_inputs: Vec<RemoteTaskInput> = remote
+            .iter()
+            .map(|r| RemoteTaskInput {
+                id: r.id.clone(),
+                title: r.title.clone(),
+                done: r.done,
+                due_date: r.due_date,
+            })
+            .collect();
+        let merged = mochi_tasks::port::apply_remote_tasks(
+            local_inputs,
+            &remote_inputs,
+            &self.store.data.task_deletes,
+        );
+        self.store.data.tasks = merged
+            .into_iter()
+            .map(|m| TaskData {
+                id: m.id.unwrap_or_else(next_task_id),
+                text: m.text,
+                done: m.done,
+                due: m.due.map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string()),
+                due_all_day: m.due_all_day,
+                reminded: m.reminded,
+                google_id: m.google_id,
+                dirty: m.dirty,
+            })
+            .collect();
+        self.tasks_last_synced = Some(Local::now().naive_local());
+        self.tasks_error = None;
+        self.dirty = true;
     }
 }

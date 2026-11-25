@@ -1,5 +1,4 @@
 use chrono::{Local, Timelike};
-use serde_json::Value;
 use windows::Win32::Graphics::Direct2D::ID2D1Geometry;
 use windows_core::Interface;
 use windows_numerics::{Matrix3x2, Vector2};
@@ -10,8 +9,8 @@ use mochi_winrt::strings::fmt1;
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
 use crate::features::agenda::render::draw_agenda_page;
 use crate::features::clipboard::render::draw_clipboard_page;
-use crate::features::companion::render::{draw_raven_sprite, draw_robo_visor};
-use crate::features::companion::state::{RavenAnimator, RavenMode};
+use crate::features::companion::render::{draw_companion_sprite, draw_robo_visor};
+use crate::features::companion::state::{CompanionAnimator, CompanionMode};
 use crate::features::focus::render::draw_focus_page;
 use crate::features::hud::render::{draw_compact_view, draw_hud_view, draw_news_view};
 use crate::features::media::render::draw_media_page;
@@ -90,28 +89,18 @@ pub fn render_notch(app: &mut NotchApp, factories: &D2dFactories, surf: &mut D2d
     let h = height as f32;
     let notch_x = cx - w / 2.0;
     let notch_outer_x = notch_x - EAR as f32;
-    let no_shadow = app.bench_variant.as_deref() == Some("sem-sombra");
+    let no_shadow = app.bench_variant.as_deref() == Some("no-shadow");
 
     let progress = app.expand.value;
-    let (compact_opacity, expanded_opacity) = if let Ok(op) =
-        mochi_spring::port::compute_frame_opacities(
-            app.expanded,
-            progress,
-            app.hud.value,
-            app.ambient.value,
-            app.overlay_is_news,
-        ) {
-        (
-            op.get("CompactOpacity")
-                .and_then(Value::as_f64)
-                .unwrap_or(1.0) as f32,
-            op.get("ExpandedOpacity")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0) as f32,
-        )
-    } else {
-        (1.0, 0.0)
-    };
+    let op = mochi_spring::port::compute_frame_opacities(
+        app.expanded,
+        progress,
+        app.hud.value,
+        app.ambient.value,
+        app.overlay_is_news,
+    );
+    let compact_opacity = op.compact_opacity as f32;
+    let expanded_opacity = op.expanded_opacity as f32;
 
     let overlay = app.hud.value.clamp(0.0, 1.0) as f32;
     let ambient = app.ambient.value.clamp(0.0, 1.0) as f32;
@@ -793,7 +782,7 @@ pub fn render_notch(app: &mut NotchApp, factories: &D2dFactories, surf: &mut D2d
         let pill_fade = ((approach_vis - 0.25) / 0.75).clamp(0.0, 1.0);
         if pill_fade > 0.01 {
             let bob = (app.drag_phase as f32 * 1.6).sin() * 1.8 * pill_fade;
-            let mut peek_anim = RavenAnimator::default();
+            let mut peek_anim = CompanionAnimator::default();
             peek_anim.perch();
             if let Some((cx_dip, cy_dip)) = app.drag_cursor_dip {
                 peek_anim.eye_shift_x =
@@ -803,7 +792,7 @@ pub fn render_notch(app: &mut NotchApp, factories: &D2dFactories, surf: &mut D2d
             peek_anim.eye_scale_x = 1.12;
             peek_anim.eye_scale_y = 1.15;
             surf.push_layer(notch_x, 0.0, w, h, pill_fade, None, None);
-            draw_raven_sprite(
+            draw_companion_sprite(
                 factories,
                 surf,
                 &peek_anim,
@@ -1409,10 +1398,10 @@ fn draw_expanded_view(
             None,
         );
         let mut cozmo = app.header_cozmo.clone();
-        if cozmo.mode == RavenMode::Still {
+        if cozmo.mode == CompanionMode::Still {
             cozmo.perch();
         }
-        draw_raven_sprite(factories, surf, &cozmo, hx + 7.0, pill_y_left + 4.0, 18.0);
+        draw_companion_sprite(factories, surf, &cozmo, hx + 7.0, pill_y_left + 4.0, 18.0);
         let mut px = hx + 29.0;
         let max_end = hx + pw_left - 8.0;
         if let Some(ref txt) = cam_txt {
@@ -1548,10 +1537,10 @@ fn draw_expanded_view(
             None,
         );
         let mut cozmo = app.header_cozmo.clone();
-        if cozmo.mode == RavenMode::Still {
+        if cozmo.mode == CompanionMode::Still {
             cozmo.perch();
         }
-        draw_raven_sprite(factories, surf, &cozmo, hx + 7.0, pill_y_left + 4.0, 18.0);
+        draw_companion_sprite(factories, surf, &cozmo, hx + 7.0, pill_y_left + 4.0, 18.0);
         surf.draw_text(
             factories,
             page_name,
@@ -2213,7 +2202,7 @@ mod tests {
         }
         let factories = D2dFactories::new().expect("D2D factories");
         let mut surf = D2dSurface::new(&factories, 200, 200, 2.0).expect("D2D surface");
-        let mut anim = RavenAnimator::default();
+        let mut anim = CompanionAnimator::default();
         for action in ["idle", "yes", "jump", "alert", "no", "thinking", "sleep"] {
             match action {
                 "idle" => anim.perch(),
@@ -2229,7 +2218,7 @@ mod tests {
                 _ => {}
             }
             assert!(surf.begin_draw());
-            draw_raven_sprite(&factories, &mut surf, &anim, 10.0, 10.0, 64.0);
+            draw_companion_sprite(&factories, &mut surf, &anim, 10.0, 10.0, 64.0);
             surf.end_draw();
         }
     }

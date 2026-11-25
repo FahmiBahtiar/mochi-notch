@@ -89,6 +89,10 @@ impl NotificationCenter {
         self.items.len() != before
     }
 
+    pub fn is_seen(&self, win_id: u32) -> bool {
+        self.seen_win_ids.contains(&win_id)
+    }
+
     pub fn unread_count(&self) -> usize {
         self.items.iter().filter(|n| n.unread).count()
     }

@@ -1,11 +1,11 @@
-//! The Rust port of `lyrics/`.
+//! Pure LRC lyrics parser, binary search, and LRCLIB query normalization.
 
 #![forbid(unsafe_code)]
 
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 const TICKS_PER_SECOND: f64 = 10_000_000.0;
 const MAX_TIMESPAN_TICKS: i128 = i64::MAX as i128;
@@ -36,10 +36,18 @@ static BROWSER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)chrome|msedge|firefox|brave|opera|vivaldi").expect("valid regex")
 });
 
-#[derive(Debug, Clone)]
-struct LyricLine {
+#[derive(Debug, Clone, PartialEq)]
+pub struct LyricLine {
+    pub time_seconds: f64,
+    pub text: String,
     ticks: i128,
-    text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackQuery {
+    pub artist: String,
+    pub title: String,
+    pub from_browser: bool,
 }
 
 fn seconds_to_ticks(seconds: f64) -> Result<i128, String> {
@@ -60,7 +68,7 @@ fn ticks_to_seconds(ticks: i128) -> f64 {
     (ticks as f64) / TICKS_PER_SECOND
 }
 
-fn parse_lines(lrc: &str) -> Option<Vec<LyricLine>> {
+pub fn parse_lyrics(lrc: &str) -> Option<Vec<LyricLine>> {
     let mut lines = Vec::new();
     for raw in lrc.split('\n') {
         let mut stamps = Vec::new();
@@ -80,8 +88,9 @@ fn parse_lines(lrc: &str) -> Option<Vec<LyricLine>> {
         let text = raw[last_end..].trim().to_string();
         for ticks in stamps {
             lines.push(LyricLine {
-                ticks,
+                time_seconds: ticks_to_seconds(ticks),
                 text: text.clone(),
+                ticks,
             });
         }
     }
@@ -93,7 +102,7 @@ fn parse_lines(lrc: &str) -> Option<Vec<LyricLine>> {
     }
 }
 
-fn index_at_lines(lines: &[LyricLine], pos_ticks: i128) -> isize {
+fn index_at_ticks(lines: &[LyricLine], pos_ticks: i128) -> isize {
     let mut lo: isize = 0;
     let mut hi: isize = lines.len() as isize - 1;
     let mut found: isize = -1;
@@ -109,61 +118,32 @@ fn index_at_lines(lines: &[LyricLine], pos_ticks: i128) -> isize {
     found
 }
 
-/// Port of `ParseLyrics` (`lyrics/LyricsUnit.cs:22`).
-pub fn parse_lyrics(lrc: String) -> Result<Option<Vec<Value>>, String> {
-    let Some(lines) = parse_lines(&lrc) else {
-        return Ok(None);
+pub fn lyrics_index_at(lines: &[LyricLine], position_seconds: f64) -> isize {
+    let Ok(pos_ticks) = seconds_to_ticks(position_seconds) else {
+        return -1;
     };
-    Ok(Some(
-        lines
-            .into_iter()
-            .map(|l| {
-                json!({
-                    "TimeSeconds": ticks_to_seconds(l.ticks),
-                    "Text": l.text,
-                })
-            })
-            .collect(),
-    ))
+    index_at_ticks(lines, pos_ticks)
 }
 
-/// Port of `LyricsIndexAt` (`lyrics/LyricsUnit.cs:28`).
-pub fn lyrics_index_at(lrc: String, position_seconds: f64) -> Result<i64, String> {
-    let Some(lines) = parse_lines(&lrc) else {
-        return Ok(-1);
-    };
-    let pos_ticks = seconds_to_ticks(position_seconds)?;
-    Ok(index_at_lines(&lines, pos_ticks) as i64)
-}
-
-/// Port of `LyricsUntilNextLine` (`lyrics/LyricsUnit.cs:36`).
-pub fn lyrics_until_next_line(lrc: String, position_seconds: f64) -> Result<Option<f64>, String> {
-    let Some(lines) = parse_lines(&lrc) else {
-        return Ok(None);
-    };
-    let pos_ticks = seconds_to_ticks(position_seconds)?;
-    let next = index_at_lines(&lines, pos_ticks) + 1;
+pub fn lyrics_until_next_line(lines: &[LyricLine], position_seconds: f64) -> Option<f64> {
+    let pos_ticks = seconds_to_ticks(position_seconds).ok()?;
+    let next = index_at_ticks(lines, pos_ticks) + 1;
     if (next as usize) < lines.len() {
         let diff = lines[next as usize].ticks - pos_ticks;
         if diff.abs() > MAX_TIMESPAN_TICKS {
-            return Err("TimeSpan overflowed".to_string());
+            return None;
         }
-        Ok(Some(ticks_to_seconds(diff)))
+        Some(ticks_to_seconds(diff))
     } else {
-        Ok(None)
+        None
     }
 }
 
-/// Port of `TrackQueryFrom` (`lyrics/LyricsUnit.cs:44`).
-pub fn track_query_from(
-    title: String,
-    artist: String,
-    source_app: String,
-) -> Result<Value, String> {
+pub fn track_query_from(title: &str, artist: &str, source_app: &str) -> TrackQuery {
     let mut artist = artist.trim().to_string();
     let mut title = title.trim().to_string();
 
-    let is_browser = BROWSER_RE.is_match(&source_app);
+    let is_browser = BROWSER_RE.is_match(source_app);
     if let Some(dash) = title.find(" - ")
         && dash > 0
         && (is_browser || artist.is_empty())
@@ -178,11 +158,11 @@ pub fn track_query_from(
     title = step3.trim().to_string();
     artist = CHANNEL_NOISE_RE.replace_all(&artist, "").trim().to_string();
 
-    Ok(json!({
-        "Artist": artist,
-        "Title": title,
-        "FromBrowser": is_browser,
-    }))
+    TrackQuery {
+        artist,
+        title,
+        from_browser: is_browser,
+    }
 }
 
 fn dotnet_to_lower_invariant(s: &str) -> String {
@@ -257,27 +237,19 @@ fn sha1_hex_upper(data: &[u8]) -> String {
     format!("{h0:08X}{h1:08X}{h2:08X}{h3:08X}{h4:08X}")
 }
 
-/// Port of `LyricsCacheKey` (`lyrics/LyricsUnit.cs:60`).
-pub fn lyrics_cache_key(artist: String, title: String) -> Result<String, String> {
+pub fn lyrics_cache_key(artist: &str, title: &str) -> String {
     let key = dotnet_to_lower_invariant(&format!("{artist}\n{title}"));
-    Ok(sha1_hex_upper(key.as_bytes()))
+    sha1_hex_upper(key.as_bytes())
 }
 
-/// Port of `PickBestLyrics` (`lyrics/LyricsUnit.cs:63`).
 pub fn pick_best_lyrics(
-    json_str: String,
+    json_str: &str,
     duration_seconds: f64,
     max_duration_diff: f64,
-) -> Result<Option<String>, String> {
-    let Ok(doc) = serde_json::from_str::<Value>(&json_str) else {
-        return Ok(None);
-    };
-    let Some(arr) = doc.as_array() else {
-        return Ok(None);
-    };
-    let Ok(dur_ticks) = seconds_to_ticks(duration_seconds) else {
-        return Ok(None);
-    };
+) -> Option<String> {
+    let doc = serde_json::from_str::<Value>(json_str).ok()?;
+    let arr = doc.as_array()?;
+    let dur_ticks = seconds_to_ticks(duration_seconds).ok()?;
     let dur_secs = ticks_to_seconds(dur_ticks);
 
     let mut best: Option<String> = None;
@@ -300,7 +272,7 @@ pub fn pick_best_lyrics(
             best = Some(synced.to_string());
         }
     }
-    Ok(best)
+    best
 }
 
 #[cfg(test)]
@@ -309,12 +281,10 @@ mod tests {
 
     #[test]
     fn parses_and_sorts_multi_stamps() {
-        let lines = parse_lyrics("[00:30.00]Chorus\n[00:10.00][00:50.00]Hook\n".into())
-            .unwrap()
-            .unwrap();
+        let lines = parse_lyrics("[00:30.00]Chorus\n[00:10.00][00:50.00]Hook\n").unwrap();
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0]["Text"], "Hook");
-        assert_eq!(lines[1]["Text"], "Chorus");
-        assert_eq!(lines[2]["Text"], "Hook");
+        assert_eq!(lines[0].text, "Hook");
+        assert_eq!(lines[1].text, "Chorus");
+        assert_eq!(lines[2].text, "Hook");
     }
 }

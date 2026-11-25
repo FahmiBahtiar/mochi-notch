@@ -20,21 +20,16 @@
   <data name="Tray_Settings" xml:space="preserve"><value>Settings…</value></data>
   <data name="Tray_Demo" xml:space="preserve"><value>Mochi demo</value></data>
   <data name="Tray_Quit" xml:space="preserve"><value>Quit</value></data>
-  <data name="Crash_Title" xml:space="preserve"><value>Mochi closed unexpectedly</value></data>
-  <data name="Crash_Text" xml:space="preserve"><value>Click to see the error log. It stays on this PC only.</value></data>
   <data name="Monitor_Label" xml:space="preserve"><value>Display {0} · {1}×{2}</value></data>
   <data name="Monitor_LabelPrimary" xml:space="preserve"><value>Display {0} · {1}×{2} (primary)</value></data>
   <data name="Common_Cancel" xml:space="preserve"><value>Cancel</value></data>
-  <data name="Common_Loading" xml:space="preserve"><value>Loading…</value></data>
   <data name="Settings_Title" xml:space="preserve"><value>Mochi — Settings</value></data>
   <data name="Settings_Version" xml:space="preserve"><value>version {0} · open source (MIT)</value></data>
   <data name="Settings_General" xml:space="preserve"><value>General</value></data>
   <data name="Settings_Language" xml:space="preserve"><value>Language</value></data>
-  <data name="Settings_LanguageHint" xml:space="preserve"><value>Takes effect the next time Mochi starts.</value></data>
   <data name="Settings_LanguageAuto" xml:space="preserve"><value>Same as Windows ({0})</value></data>
   <data name="Settings_StartWithWindows" xml:space="preserve"><value>Start with Windows</value></data>
   <data name="Settings_Display" xml:space="preserve"><value>Notch display</value></data>
-  <data name="Settings_DisplayTip" xml:space="preserve"><value>Choose the display</value></data>
   <data name="Settings_Hotkey" xml:space="preserve"><value>Open and close with Ctrl+Alt+Y</value></data>
   <data name="Settings_HotkeyHint" xml:space="preserve"><value>Windows reports only this combination; nothing else you type is read.</value></data>
   <data name="Settings_JumpHotkey" xml:space="preserve"><value>Go to the agent that needs you with Ctrl+Alt+J</value></data>
@@ -54,73 +49,34 @@
   <data name="Settings_UpdateCheckHint" xml:space="preserve"><value>One check a day of GitHub's public releases page. Nothing about you or the PC is sent. Updating happens only when you click it: the installer comes from GitHub and is checked before it runs.</value></data>
   <data name="Settings_UpdateAvailable" xml:space="preserve"><value>Version {0} available</value></data>
   <data name="Settings_OpenDownload" xml:space="preserve"><value>Open download page</value></data>
-  <data name="Settings_UpdateNow" xml:space="preserve"><value>Update and restart</value></data>
   <data name="Settings_ThisVersion" xml:space="preserve"><value>Mochi {0}</value></data>
   <data name="Settings_CheckNow" xml:space="preserve"><value>Check now</value></data>
   <data name="Settings_Checking" xml:space="preserve"><value>Checking…</value></data>
-  <data name="Settings_CheckFailed" xml:space="preserve"><value>Couldn't reach GitHub. Try again in a moment.</value></data>
-  <data name="Settings_LastChecked" xml:space="preserve"><value>Last checked {0}</value></data>
-  <data name="Settings_NeverChecked" xml:space="preserve"><value>Not checked yet</value></data>
-  <data name="Settings_SyncLabel" xml:space="preserve"><value>Sync with Google</value></data>
-  <data name="Settings_SyncNow" xml:space="preserve"><value>Sync now</value></data>
-  <data name="Settings_Syncing" xml:space="preserve"><value>Syncing…</value></data>
-  <data name="Settings_LastSynced" xml:space="preserve"><value>Last synced {0}</value></data>
-  <data name="Settings_NotSynced" xml:space="preserve"><value>Not synced yet</value></data>
-  <data name="Settings_Forecast" xml:space="preserve"><value>Forecast</value></data>
-  <data name="Settings_RefreshNow" xml:space="preserve"><value>Refresh now</value></data>
-  <data name="Settings_Refreshing" xml:space="preserve"><value>Refreshing…</value></data>
-  <data name="Settings_ForecastFrom" xml:space="preserve"><value>Updated {0}</value></data>
-  <data name="Settings_NoForecast" xml:space="preserve"><value>No forecast yet</value></data>
-  <data name="Time_TodayAt" xml:space="preserve"><value>today at {0}</value></data>
-  <data name="Time_DayAt" xml:space="preserve"><value>{0} at {1}</value></data>
   <data name="Tray_CheckUpdates" xml:space="preserve"><value>Check for updates</value></data>
   <data name="Hud_UpToDate" xml:space="preserve"><value>Mochi is up to date</value></data>
   <data name="Hud_CheckFailed" xml:space="preserve"><value>Couldn't check for updates</value></data>
-  <data name="Update_Downloading" xml:space="preserve"><value>Downloading and checking the installer…</value></data>
-  <data name="Update_Installing" xml:space="preserve"><value>Installing. Mochi opens again in a moment.</value></data>
-  <data name="Update_UpToDate" xml:space="preserve"><value>This is already the newest version.</value></data>
-  <data name="Update_Failed" xml:space="preserve"><value>Couldn't update. Try again later, or use the download page.</value></data>
-  <data name="Update_BadFile" xml:space="preserve"><value>The downloaded file didn't match the one published on GitHub, so it wasn't installed.</value></data>
-  <data name="Update_Cancelled" xml:space="preserve"><value>The download took too long. Try again.</value></data>
   <data name="Settings_Media" xml:space="preserve"><value>Media</value></data>
   <data name="Settings_Lyrics" xml:space="preserve"><value>Synced lyrics</value></data>
   <data name="Settings_LyricsHint" xml:space="preserve"><value>Looked up on LRCLIB (lrclib.net), sending only artist, title and length.</value></data>
   <data name="Settings_Calendar" xml:space="preserve"><value>Calendar</value></data>
   <data name="Settings_Allow" xml:space="preserve"><value>Allow</value></data>
   <data name="Settings_RemindBefore" xml:space="preserve"><value>Remind me before events</value></data>
-  <data name="Settings_RemindBeforeHint" xml:space="preserve"><value>At 0, only when it starts.</value></data>
   <data name="Settings_NextEventCompact" xml:space="preserve"><value>Next event in the closed notch</value></data>
   <data name="Settings_NextEventCompactHint" xml:space="preserve"><value>In the 15 minutes before, in place of the clock.</value></data>
   <data name="Settings_Tasks" xml:space="preserve"><value>Tasks</value></data>
-  <data name="Settings_TaskList" xml:space="preserve"><value>List</value></data>
-  <data name="Settings_TaskListHint" xml:space="preserve"><value>The Tasks tab shows this list.</value></data>
   <data name="Settings_Weather" xml:space="preserve"><value>Weather</value></data>
   <data name="Settings_ShowWeather" xml:space="preserve"><value>Show the weather</value></data>
   <data name="Settings_ShowWeatherHint" xml:space="preserve"><value>Data from Open-Meteo (open-meteo.com), no account. Sends only the city's coordinates, rounded (~1 km).</value></data>
-  <data name="Settings_City" xml:space="preserve"><value>City</value></data>
-  <data name="Settings_NoCity" xml:space="preserve"><value>none chosen</value></data>
   <data name="Settings_CitySearch" xml:space="preserve"><value>Search for a city (e.g. Lisbon)</value></data>
   <data name="Settings_Search" xml:space="preserve"><value>Search</value></data>
   <data name="Settings_Searching" xml:space="preserve"><value>Searching…</value></data>
-  <data name="Settings_NoCityFound" xml:space="preserve"><value>No city found.</value></data>
-  <data name="Settings_NoOpenMeteo" xml:space="preserve"><value>Can't reach Open-Meteo.</value></data>
-  <data name="Settings_LocateHint" xml:space="preserve"><value>Or use the Windows location once: the position is rounded to ~1 km right away and never stored precisely.</value></data>
   <data name="Settings_UseMyLocation" xml:space="preserve"><value>Use my location</value></data>
-  <data name="Settings_Locating" xml:space="preserve"><value>Asking Windows for the location…</value></data>
-  <data name="Settings_MyLocation" xml:space="preserve"><value>My location ({0}, {1})</value></data>
-  <data name="Settings_LocationOff" xml:space="preserve"><value>Location is turned off for desktop apps.</value></data>
-  <data name="Settings_LocationFailed" xml:space="preserve"><value>Couldn't get the location right now. Try again or search for the city.</value></data>
-  <data name="Settings_OpenWindowsSettings" xml:space="preserve"><value>Open Windows settings</value></data>
   <data name="Settings_RainAlerts" xml:space="preserve"><value>Warn me when rain is coming</value></data>
   <data name="Settings_RainAlertsHint" xml:space="preserve"><value>When the chance goes over 60% in the next 2 hours.</value></data>
   <data name="Settings_Notices" xml:space="preserve"><value>Notch notices</value></data>
   <data name="Activity_Working" xml:space="preserve"><value>working</value></data>
   <data name="Activity_Permission" xml:space="preserve"><value>needs your permission</value></data>
   <data name="Activity_Waiting" xml:space="preserve"><value>waiting for you</value></data>
-  <data name="Activity_GoToWindow" xml:space="preserve"><value>Click to go to its window</value></data>
-  <data name="Activity_WindowGone" xml:space="preserve"><value>Its window is no longer open</value></data>
-  <data name="Activity_GoTo" xml:space="preserve"><value>Go to its window</value></data>
-  <data name="Activity_Dismiss" xml:space="preserve"><value>Dismiss</value></data>
   <data name="Activity_More" xml:space="preserve"><value>+{0} more</value></data>
   <data name="Activity_Done" xml:space="preserve"><value>done</value></data>
   <data name="Activity_Failed" xml:space="preserve"><value>failed</value></data>
@@ -128,32 +84,12 @@
   <data name="Settings_ActivitiesEnabled" xml:space="preserve"><value>Let programs on this PC show activities</value></data>
   <data name="Settings_ActivitiesHint" xml:space="preserve"><value>Scripts, builds and AI agents can show their progress beside the notch with mochi-cli. Only programs running as you on this PC; nothing goes over the network.</value></data>
   <data name="Settings_Agents" xml:space="preserve"><value>AI agents</value></data>
-  <data name="Agents_Note" xml:space="preserve"><value>Shows in the notch when the agent is working, waiting for you and done. Mochi adds its hooks to the agent's own settings, keeps a copy of the file (.mochi-backup), and turning off removes only what it added.</value></data>
   <data name="Agents_NotFound" xml:space="preserve"><value>Not found on this PC</value></data>
-  <data name="Agents_Off" xml:space="preserve"><value>Off</value></data>
-  <data name="Agents_On" xml:space="preserve"><value>On for new sessions</value></data>
-  <data name="Agents_OnCodex" xml:space="preserve"><value>On. In Codex, review and trust the hooks with /hooks.</value></data>
   <data name="Agents_ByPlugin" xml:space="preserve"><value>On through the Mochi plugin for Claude Code</value></data>
-  <data name="Agents_CursorNoWaiting" xml:space="preserve"><value>Cursor has no event for "waiting for your approval": it shows working and done.</value></data>
-  <data name="Agents_Wsl" xml:space="preserve"><value>Claude Code in WSL</value></data>
-  <data name="Agents_WslHint" xml:space="preserve"><value>Choose the distros where Claude Code should show in the notch.</value></data>
-  <data name="Agents_WslChoose" xml:space="preserve"><value>Choose…</value></data>
-  <data name="Agents_WslLooking" xml:space="preserve"><value>Looking into the WSL distros…</value></data>
-  <data name="Agents_WslWorking" xml:space="preserve"><value>Setting up {0}…</value></data>
-  <data name="Agents_WslOn" xml:space="preserve"><value>On in: {0}</value></data>
-  <data name="Agents_WslByPlugin" xml:space="preserve"><value>{0} (plugin)</value></data>
-  <data name="Agents_WslNoClaude" xml:space="preserve"><value>{0}: no Claude Code</value></data>
-  <data name="Agents_WslNoAccess" xml:space="preserve"><value>{0}: can't reach Windows</value></data>
-  <data name="Agents_WslFailed" xml:space="preserve"><value>Couldn't set up {0}</value></data>
-  <data name="Agents_WslNone" xml:space="preserve"><value>No WSL distro with Claude Code</value></data>
   <data name="Agents_Path" xml:space="preserve"><value>mochi-cli on PATH</value></data>
   <data name="Agents_PathHint" xml:space="preserve"><value>So scripts and Codex can call mochi-cli by name. Terminals already open don't see the change.</value></data>
-  <data name="Agents_NoCli" xml:space="preserve"><value>mochi-cli.exe isn't next to Mochi (a development build?).</value></data>
-  <data name="Agents_Unreadable" xml:space="preserve"><value>Couldn't read {0}. Fix it, or add the hooks by hand (mochi-cli hook setup).</value></data>
-  <data name="Agents_NotAnObject" xml:space="preserve"><value>{0} isn't a JSON object, so Mochi leaves it alone.</value></data>
   <data name="Settings_Sounds" xml:space="preserve"><value>Chime with reminders</value></data>
   <data name="Settings_QuietDuringCalls" xml:space="preserve"><value>No chime during calls</value></data>
-  <data name="Settings_QuietDuringCallsHint" xml:space="preserve"><value>While the microphone is in use.</value></data>
   <data name="Settings_HudVolume" xml:space="preserve"><value>Volume</value></data>
   <data name="Settings_HudBrightness" xml:space="preserve"><value>Brightness</value></data>
   <data name="Settings_HudPower" xml:space="preserve"><value>Charger and low battery</value></data>
@@ -185,23 +121,14 @@
   <data name="Settings_LogLocal" xml:space="preserve"><value>Something wrong? The log stays here too.</value></data>
   <data name="Settings_OpenLog" xml:space="preserve"><value>Open log</value></data>
   <data name="Settings_CopyDiagnostics" xml:space="preserve"><value>Copy diagnostics</value></data>
-  <data name="Settings_Copied" xml:space="preserve"><value>Copied</value></data>
   <data name="Google_Account" xml:space="preserve"><value>Google account</value></data>
   <data name="Google_NotConfigured" xml:space="preserve"><value>Put google-client.json (Google Desktop OAuth client) in Mochi's data folder.</value></data>
   <data name="Google_ContinueInBrowser" xml:space="preserve"><value>Continue in the browser that opened…</value></data>
   <data name="Google_ConnectedAs" xml:space="preserve"><value>Connected as {0}</value></data>
-  <data name="Google_ConnectedHint" xml:space="preserve"><value>Access is protected by Windows on this PC. Disconnecting revokes it on Google.</value></data>
   <data name="Google_Disconnect" xml:space="preserve"><value>Disconnect</value></data>
-  <data name="Google_ConnectAgain" xml:space="preserve"><value>Connect again.</value></data>
-  <data name="Google_Reconnect" xml:space="preserve"><value>Reconnect</value></data>
   <data name="Google_Intro" xml:space="preserve"><value>Google Calendar and Tasks in the notch. On Google's screen you choose what to allow; access is protected by Windows on this PC.</value></data>
   <data name="Google_Connect" xml:space="preserve"><value>Connect with Google</value></data>
   <data name="Google_SomeUnchecked" xml:space="preserve"><value>Some permissions were left unchecked; you can allow them here later.</value></data>
-  <data name="Calendar_Intro" xml:space="preserve"><value>Shows your upcoming events and reminds you before each one. Read-only.</value></data>
-  <data name="Calendar_Connected" xml:space="preserve"><value>Read-only: your calendars and today's and tomorrow's events stay in memory only.</value></data>
-  <data name="Calendar_Primary" xml:space="preserve"><value>Main calendar</value></data>
-  <data name="Tasks_Intro" xml:space="preserve"><value>Syncs the Tasks tab with Google Tasks both ways; open tasks from here go to the list. Reminder times stay in Mochi only.</value></data>
-  <data name="Tasks_Connected" xml:space="preserve"><value>Completing, adding and removing here also applies on Google. Turning it off removes Google's tasks from the tab.</value></data>
   <data name="Format_LongDate" xml:space="preserve"><value>dddd, MMMM d</value></data>
   <data name="Format_WeekdayDate" xml:space="preserve"><value>dddd, M/d</value></data>
   <data name="Format_DayMonth" xml:space="preserve"><value>M/d</value></data>
@@ -219,19 +146,7 @@
   <data name="Tab_Notifications" xml:space="preserve"><value>Alerts</value></data>
   <data name="Tab_Clipboard" xml:space="preserve"><value>Clip</value></data>
   <data name="Tab_Weather" xml:space="preserve"><value>Weather</value></data>
-  <data name="Tab_Settings" xml:space="preserve"><value>Settings</value></data>
-  <data name="Media_Previous" xml:space="preserve"><value>Previous</value></data>
-  <data name="Media_Next" xml:space="preserve"><value>Next</value></data>
-  <data name="Media_SwitchTo" xml:space="preserve"><value>Switch to {0}</value></data>
-  <data name="Media_SwitchPlayer" xml:space="preserve"><value>Switch to the next player</value></data>
-  <data name="Media_RemovePlayer" xml:space="preserve"><value>Take {0} off the notch until it plays again</value></data>
-  <data name="Media_RemoveThisPlayer" xml:space="preserve"><value>Take this player off the notch until it plays again</value></data>
-  <data name="Media_Play" xml:space="preserve"><value>Play</value></data>
-  <data name="Media_Pause" xml:space="preserve"><value>Pause</value></data>
   <data name="Media_NothingPlaying" xml:space="preserve"><value>Nothing playing</value></data>
-  <data name="Weather_RainAround" xml:space="preserve"><value>rain around {0:HH}:00</value></data>
-  <data name="Weather_RainNow" xml:space="preserve"><value>Rain could start any minute</value></data>
-  <data name="Weather_RainExpected" xml:space="preserve"><value>Rain expected around {0:HH}:00</value></data>
   <data name="Weather_Clear" xml:space="preserve"><value>Clear sky</value></data>
   <data name="Weather_MostlyClear" xml:space="preserve"><value>Mostly clear</value></data>
   <data name="Weather_PartlyCloudy" xml:space="preserve"><value>Partly cloudy</value></data>
@@ -252,7 +167,6 @@
   <data name="Agenda_Join" xml:space="preserve"><value>Join</value></data>
   <data name="Agenda_NotConfigured" xml:space="preserve"><value>This build of Mochi was compiled without Google access.</value></data>
   <data name="Agenda_Connecting" xml:space="preserve"><value>Continue in the browser to connect your calendar…</value></data>
-  <data name="Agenda_ConnectAgain" xml:space="preserve"><value>Connect your Google account again.</value></data>
   <data name="Agenda_SignedOut" xml:space="preserve"><value>See your upcoming Google Calendar events here.</value></data>
   <data name="Agenda_Connect" xml:space="preserve"><value>Connect calendar</value></data>
   <data name="Agenda_NothingLeft" xml:space="preserve"><value>Nothing else on the calendar today or tomorrow</value></data>
@@ -266,7 +180,6 @@
   <data name="Calendar_Now" xml:space="preserve"><value>now</value></data>
   <data name="Calendar_InMinutes" xml:space="preserve"><value>in {0} min</value></data>
   <data name="Calendar_InHours" xml:space="preserve"><value>in {0}h{1:00}</value></data>
-  <data name="Calendar_Untitled" xml:space="preserve"><value>(No title)</value></data>
   <data name="Focus_Focus" xml:space="preserve"><value>Focus</value></data>
   <data name="Focus_ShortBreak" xml:space="preserve"><value>Short break</value></data>
   <data name="Focus_LongBreak" xml:space="preserve"><value>Long break</value></data>
@@ -285,43 +198,27 @@
   <data name="Focus_BreakTime" xml:space="preserve"><value>Break time</value></data>
   <data name="Focus_BackToFocus" xml:space="preserve"><value>Back to focus</value></data>
   <data name="Focus_BreakAt" xml:space="preserve"><value> · break at {0}</value></data>
-  <data name="Focus_EventDuring" xml:space="preserve"><value>Before it ends: {1} · {0}</value></data>
-  <data name="Focus_EventNoFit" xml:space="preserve"><value>No room for a session before {1} · {0}</value></data>
-  <data name="Focus_EventFitsOne" xml:space="preserve"><value>Room for 1 session before {1} · {0}</value></data>
-  <data name="Focus_EventFitsMany" xml:space="preserve"><value>Room for {2} sessions before {1} · {0}</value></data>
   <data name="Focus_Today" xml:space="preserve"><value>Today</value></data>
   <data name="Focus_OfGoal" xml:space="preserve"><value>of {0}</value></data>
   <data name="Focus_GoalMet" xml:space="preserve"><value>Goal met</value></data>
   <data name="Focus_PickTaskShort" xml:space="preserve"><value>Pick a task</value></data>
   <data name="Focus_PickTask" xml:space="preserve"><value>Focus on</value></data>
-  <data name="Focus_ClosePicker" xml:space="preserve"><value>Close</value></data>
   <data name="Focus_NoTask" xml:space="preserve"><value>No task</value></data>
   <data name="Focus_NoOpenTasks" xml:space="preserve"><value>No open tasks. Add them on the Tasks tab.</value></data>
-  <data name="Focus_MarkDone" xml:space="preserve"><value>Mark as done</value></data>
-  <data name="Focus_Finished" xml:space="preserve"><value>Done?</value></data>
   <data name="Shelf_DropHere" xml:space="preserve"><value>Drag files here</value></data>
-  <data name="Shelf_Unavailable" xml:space="preserve"><value>Unavailable right now: its drive or server isn't answering.</value></data>
-  <data name="Shelf_Remove" xml:space="preserve"><value>Remove from shelf</value></data>
   <data name="Shelf_DropToKeep" xml:space="preserve"><value>Drop to keep</value></data>
   <data name="Shelf_Clear" xml:space="preserve"><value>Clear</value></data>
   <data name="Shelf_CountOne" xml:space="preserve"><value>1 item · drag to use</value></data>
   <data name="Shelf_Count" xml:space="preserve"><value>{0} items · drag to use</value></data>
-  <data name="Tasks_Late" xml:space="preserve"><value>{0} · {1} late</value></data>
   <data name="Tasks_Empty" xml:space="preserve"><value>No tasks here</value></data>
-  <data name="Tasks_Remove" xml:space="preserve"><value>Remove</value></data>
   <data name="Tasks_NewPlaceholder" xml:space="preserve"><value>New task (e.g. Call Ana at 3pm)</value></data>
-  <data name="Tasks_Add" xml:space="preserve"><value>Add</value></data>
-  <data name="Tasks_Unnamed" xml:space="preserve"><value>Untitled</value></data>
   <data name="Water_Undo" xml:space="preserve"><value>Undo</value></data>
   <data name="Water_GoalReached" xml:space="preserve"><value>Water goal reached</value></data>
   <data name="Water_Reminder" xml:space="preserve"><value>Time to drink water</value></data>
   <data name="Away_FocusPaused" xml:space="preserve"><value>Focus paused when you left</value></data>
   <data name="Away_Title" xml:space="preserve"><value>While you were away · {0}</value></data>
   <data name="Away_TitleCount" xml:space="preserve"><value>While you were away · {0} · {1} notices</value></data>
-  <data name="Away_Battery" xml:space="preserve"><value>Battery {0}% → {1}%</value></data>
   <data name="Demo_Meeting" xml:space="preserve"><value>Team meeting</value></data>
-  <data name="Hud_DataUnreadable" xml:space="preserve"><value>Unreadable data; started over</value></data>
-  <data name="Hud_CameraAndMicrophone" xml:space="preserve"><value>Camera and microphone in use</value></data>
   <data name="Hud_Camera" xml:space="preserve"><value>Camera in use</value></data>
   <data name="Hud_Microphone" xml:space="preserve"><value>Microphone in use</value></data>
   <data name="Hud_MicrophoneMuted" xml:space="preserve"><value>Microphone muted</value></data>
@@ -340,35 +237,13 @@
   <data name="Hud_CapsLockOff" xml:space="preserve"><value>Caps Lock off</value></data>
   <data name="Hud_Keyboard" xml:space="preserve"><value>Keyboard</value></data>
   <data name="Hud_NewVersion" xml:space="preserve"><value>New Mochi version</value></data>
-  <data name="Google_NoConnection" xml:space="preserve"><value>No connection to Google.</value></data>
-  <data name="Google_BrowserFailed" xml:space="preserve"><value>Couldn't open the browser.</value></data>
-  <data name="Google_SaveFailed" xml:space="preserve"><value>Couldn't store the access on this PC.</value></data>
   <data name="GoogleAuth_NoClient" xml:space="preserve"><value>Missing google-client.json in Mochi's data folder.</value></data>
-  <data name="GoogleAuth_RefusedCode" xml:space="preserve"><value>Google refused the connection ({0}).</value></data>
-  <data name="GoogleAuth_Refused" xml:space="preserve"><value>Google refused the connection.</value></data>
   <data name="GoogleAuth_Cancelled" xml:space="preserve"><value>Connection cancelled on Google.</value></data>
   <data name="GoogleAuth_NoRefresh" xml:space="preserve"><value>Google didn't return lasting access. Try connecting again.</value></data>
-  <data name="GoogleAuth_NothingGranted" xml:space="preserve"><value>No permission was checked on Google, so nothing was connected.</value></data>
-  <data name="GoogleAuth_NotConnected" xml:space="preserve"><value>Google account not connected.</value></data>
-  <data name="GoogleAuth_Expired" xml:space="preserve"><value>Access to the Google account expired. Connect again.</value></data>
-  <data name="GoogleAuth_RenewFailed" xml:space="preserve"><value>Couldn't renew access ({0}).</value></data>
   <data name="GoogleAuth_PageConnected" xml:space="preserve"><value>Google account connected</value></data>
   <data name="GoogleAuth_PageConnectedText" xml:space="preserve"><value>You can close this tab and go back to Mochi.</value></data>
   <data name="GoogleAuth_PageCancelled" xml:space="preserve"><value>Connection cancelled</value></data>
   <data name="GoogleAuth_PageCancelledText" xml:space="preserve"><value>Nothing was shared. You can close this tab.</value></data>
-  <data name="Calendar_AskPermission" xml:space="preserve"><value>Check the calendar permission so Mochi can show your events.</value></data>
-  <data name="Calendar_ApiDisabled" xml:space="preserve"><value>The Google Calendar API isn't enabled in the Google Cloud project.</value></data>
-  <data name="Calendar_NoConnection" xml:space="preserve"><value>No connection to Google Calendar.</value></data>
-  <data name="Tasks_AskPermission" xml:space="preserve"><value>Check the tasks permission so Mochi can sync.</value></data>
-  <data name="Tasks_ApiDisabled" xml:space="preserve"><value>The Google Tasks API isn't enabled in the Google Cloud project.</value></data>
-  <data name="Tasks_NoConnection" xml:space="preserve"><value>No connection to Google Tasks.</value></data>
-  <data name="Settings_CitySearchName" xml:space="preserve"><value>Search for a city</value></data>
-  <data name="Agenda_JoinCall" xml:space="preserve"><value>Join the call</value></data>
-  <data name="Tasks_Complete" xml:space="preserve"><value>Complete</value></data>
-  <data name="Water_AddCup" xml:space="preserve"><value>Log a cup</value></data>
-  <data name="Stepper_Decrease" xml:space="preserve"><value>Decrease {0}</value></data>
-  <data name="Stepper_Increase" xml:space="preserve"><value>Increase {0}</value></data>
-  <data name="Tasks_Reopen" xml:space="preserve"><value>Reopen</value></data>
   <data name="Undo_Action" xml:space="preserve"><value>Undo</value></data>
   <data name="Undo_TaskRemoved" xml:space="preserve"><value>Task removed</value></data>
   <data name="Undo_ShelfCleared" xml:space="preserve"><value>Shelf cleared</value></data>
@@ -385,7 +260,6 @@
   <data name="Weather_Hourly" xml:space="preserve"><value>Hourly forecast</value></data>
   <data name="Weather_Feels" xml:space="preserve"><value>Feels {0}°</value></data>
   <data name="Weather_Wind" xml:space="preserve"><value>{0} km/h</value></data>
-  <data name="Weather_Humidity" xml:space="preserve"><value>Humidity {0}%</value></data>
   <data name="Weather_Dry" xml:space="preserve"><value>Dry next 12h</value></data>
   <data name="Weather_RainPeak" xml:space="preserve"><value>Rain {0}% at {1}</value></data>
   <data name="Weather_Now" xml:space="preserve"><value>Now</value></data>

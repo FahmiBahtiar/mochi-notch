@@ -1,5 +1,5 @@
 Add to %USERPROFILE%\.claude\settings.json (merge with what's there), or install the plugin instead:
-/plugin marketplace add mochi/mochi, then /plugin install mochi@mochi
+/plugin marketplace add FahmiBahtiar/mochi-notch, then /plugin install mochi@mochi
 {
   "hooks": {
     "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],

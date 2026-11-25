@@ -10,7 +10,6 @@ description = "Task list, natural time parser, Google Tasks merge, and reminder 
 [dependencies]
 chrono = "0.4"
 regex = "1"
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 
 [lints]
 workspace = true

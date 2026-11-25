@@ -726,4 +726,56 @@ pub fn is_motion_reduced() -> bool {
     anim_off || saver
 }
 
+pub fn register_session_notifications(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::System::RemoteDesktop::{
+        NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification,
+    };
+    // SAFETY: `hwnd` is a valid window handle owned by this process.
+    unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) }.is_ok()
+}
+
+pub fn unregister_session_notifications(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::System::RemoteDesktop::WTSUnRegisterSessionNotification;
+    // SAFETY: `hwnd` was previously registered with `WTSRegisterSessionNotification`.
+    unsafe {
+        let _ = WTSUnRegisterSessionNotification(hwnd);
+    }
+}
+
+pub fn is_session_locked() -> bool {
+    use windows::Win32::System::RemoteDesktop::{
+        WTS_CURRENT_SESSION, WTS_SESSIONSTATE_LOCK, WTSFreeMemory, WTSINFOEXW,
+        WTSQuerySessionInformationW, WTSSessionInfoEx,
+    };
+    let mut buf: windows_core::PWSTR = windows_core::PWSTR::null();
+    let mut bytes = 0u32;
+    // SAFETY: Querying `WTSSessionInfoEx` for the current session; freed via `WTSFreeMemory`.
+    let ok = unsafe {
+        WTSQuerySessionInformationW(
+            None,
+            WTS_CURRENT_SESSION,
+            WTSSessionInfoEx,
+            &raw mut buf,
+            &raw mut bytes,
+        )
+    };
+    if ok.is_err() || buf.0.is_null() {
+        return false;
+    }
+    let locked = if (bytes as usize) >= std::mem::size_of::<WTSINFOEXW>() {
+        // SAFETY: `buf.0` points to a valid `WTSINFOEXW` allocated by `WTSQuerySessionInformationW`.
+        let info = unsafe { &*buf.0.cast::<WTSINFOEXW>() };
+        // SAFETY: `Level == 1` selects `WTSInfoExLevel1` in the `WTSINFOEX_LEVEL_W` union.
+        info.Level == 1
+            && unsafe { info.Data.WTSInfoExLevel1.SessionFlags } == WTS_SESSIONSTATE_LOCK as i32
+    } else {
+        false
+    };
+    // SAFETY: `buf.0` was allocated by `WTSQuerySessionInformationW`.
+    unsafe {
+        WTSFreeMemory(buf.0.cast());
+    }
+    locked
+}
+
 pub fn _unused_mutex_marker(_: &Mutex<()>) {}

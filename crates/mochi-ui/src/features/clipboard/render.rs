@@ -2,8 +2,8 @@ use chrono::Timelike;
 
 use crate::d2d::{D2dFactories, D2dSurface, FontKind, HAlign, VAlign};
 use crate::features::clipboard::state::ClipboardKind;
-use crate::features::companion::render::draw_raven_sprite;
-use crate::features::companion::state::RavenAnimator;
+use crate::features::companion::render::draw_companion_sprite;
+use crate::features::companion::state::CompanionAnimator;
 use crate::features::widgets::render::{draw_icon_button, draw_pill_button, rounded_rect_geom};
 use crate::render::{HitMap, RectF};
 use crate::state::{HoverTarget, NotchApp};
@@ -32,9 +32,9 @@ pub(crate) fn draw_clipboard_page(
 
     if app.clipboard_items.is_empty() {
         let ry = cy + (list_h - 64.0) / 2.0;
-        let mut perch = RavenAnimator::default();
+        let mut perch = CompanionAnimator::default();
         perch.perch();
-        draw_raven_sprite(
+        draw_companion_sprite(
             factories,
             surf,
             &perch,

@@ -1,8 +1,8 @@
 # Generates production README visual assets in docs/assets/ by compositing real
-# Direct2D vitrine renders from Mochi.exe onto high-DPI showcase frames.
-# Usage: ./tools/make-readme-art.ps1 [-ShotsDir target\vitrine-tmp] [-PerformanceOnly]
+# Direct2D showcase renders from Mochi.exe onto high-DPI showcase frames.
+# Usage: ./tools/make-readme-art.ps1 [-ShotsDir target\showcase-tmp] [-PerformanceOnly]
 param(
-    [string]$ShotsDir = "target\vitrine-tmp",
+    [string]$ShotsDir = "target\showcase-tmp",
     [switch]$PerformanceOnly
 )
 $ErrorActionPreference = "Stop"
@@ -87,7 +87,7 @@ function Draw-RadialGlow($g, [float]$cx, [float]$cy, [float]$rx, [float]$ry, [Sy
 
 function Draw-ShotAnchored($g, [string]$fileName, [float]$centerX, [float]$topY, [float]$maxW, [float]$maxH) {
     $path = Join-Path $shots $fileName
-    if (-not (Test-Path $path)) { throw "Missing vitrine shot: $path" }
+    if (-not (Test-Path $path)) { throw "Missing showcase shot: $path" }
     $img = [System.Drawing.Image]::FromFile($path)
     try {
         $scale = [Math]::Min($maxW / $img.Width, $maxH / $img.Height)
@@ -233,7 +233,7 @@ $g.FillRectangle($bezelB, $fx, $fy, $fw, 14.0)
 $bezelB.Dispose()
 
 # Real Direct2D expanded notch + Copilot panel anchored flush to top bezel
-$null = Draw-ShotAnchored $g "aberto-copilot.png" 800.0 ($fy + 12.0) 1380.0 320.0
+$null = Draw-ShotAnchored $g "open-copilot.png" 800.0 ($fy + 12.0) 1380.0 320.0
 
 # 3 Feature Highlight Cards inside bottom of desktop frame
 $cards = @(
@@ -284,12 +284,12 @@ $g.DrawString("Always-On Compact & Ambient States", $hTitleF, $hTitleB, 48.0, 26
 $g.DrawString("Adapts dynamically at 100 Hz $emdash from a quiet clock and gaze-tracking visor to live media, focus timers, HUDs, and AI agent bubbles.", $hSubF, $hSubB, 50.0, 70.0)
 
 $compactCards = @(
-    @{ Title = "Clock & Ambient Robo Visor"; Desc = "Live clock, cursor-tracking gaze & sleep mode"; Shots = @("fechado-relogio.png", "fechado-dormindo.png"); WallA = [System.Drawing.Color]::FromArgb(255, 18, 26, 48); WallB = [System.Drawing.Color]::FromArgb(255, 28, 24, 58) },
-    @{ Title = "Live Media & Equalizer"; Desc = "SMTC album art, synced lyrics & 100 Hz waveform"; Shots = @("fechado-musica.png"); WallA = [System.Drawing.Color]::FromArgb(255, 22, 24, 56); WallB = [System.Drawing.Color]::FromArgb(255, 42, 26, 74) },
-    @{ Title = "Focus & Meeting Bubble"; Desc = "Pomodoro progress ring & upcoming calendar alerts"; Shots = @("fechado-foco.png"); WallA = [System.Drawing.Color]::FromArgb(255, 16, 30, 48); WallB = [System.Drawing.Color]::FromArgb(255, 22, 44, 68) },
-    @{ Title = "System HUD Overlays"; Desc = "Volume, brightness, power, Caps Lock & privacy dots"; Shots = @("fechado-volume.png"); WallA = [System.Drawing.Color]::FromArgb(255, 20, 28, 44); WallB = [System.Drawing.Color]::FromArgb(255, 32, 38, 62) },
-    @{ Title = "AI Agent Live Status"; Desc = "Claude Code, Copilot, Cursor & Codex activity bubbles"; Shots = @("fechado-agente-aviso.png"); WallA = [System.Drawing.Color]::FromArgb(255, 28, 22, 44); WallB = [System.Drawing.Color]::FromArgb(255, 48, 28, 52) },
-    @{ Title = "While You Were Away"; Desc = "Smart summary of missed events & alerts on return"; Shots = @("fechado-fora.png"); WallA = [System.Drawing.Color]::FromArgb(255, 14, 32, 42); WallB = [System.Drawing.Color]::FromArgb(255, 20, 48, 58) }
+    @{ Title = "Clock & Ambient Robo Visor"; Desc = "Live clock, cursor-tracking gaze & sleep mode"; Shots = @("closed-clock.png", "closed-sleeping.png"); WallA = [System.Drawing.Color]::FromArgb(255, 18, 26, 48); WallB = [System.Drawing.Color]::FromArgb(255, 28, 24, 58) },
+    @{ Title = "Live Media & Equalizer"; Desc = "SMTC album art, synced lyrics & 100 Hz waveform"; Shots = @("closed-media.png"); WallA = [System.Drawing.Color]::FromArgb(255, 22, 24, 56); WallB = [System.Drawing.Color]::FromArgb(255, 42, 26, 74) },
+    @{ Title = "Focus & Meeting Bubble"; Desc = "Pomodoro progress ring & upcoming calendar alerts"; Shots = @("closed-focus.png"); WallA = [System.Drawing.Color]::FromArgb(255, 16, 30, 48); WallB = [System.Drawing.Color]::FromArgb(255, 22, 44, 68) },
+    @{ Title = "System HUD Overlays"; Desc = "Volume, brightness, power, Caps Lock & privacy dots"; Shots = @("closed-volume.png"); WallA = [System.Drawing.Color]::FromArgb(255, 20, 28, 44); WallB = [System.Drawing.Color]::FromArgb(255, 32, 38, 62) },
+    @{ Title = "AI Agent Live Status"; Desc = "Claude Code, Copilot, Cursor & Codex activity bubbles"; Shots = @("closed-agent-alert.png"); WallA = [System.Drawing.Color]::FromArgb(255, 28, 22, 44); WallB = [System.Drawing.Color]::FromArgb(255, 48, 28, 52) },
+    @{ Title = "While You Were Away"; Desc = "Smart summary of missed events & alerts on return"; Shots = @("closed-away.png"); WallA = [System.Drawing.Color]::FromArgb(255, 14, 32, 42); WallB = [System.Drawing.Color]::FromArgb(255, 20, 48, 58) }
 )
 
 $cw = 485.0; $ch = 218.0; $gx = 24.0; $gy = 20.0
@@ -333,16 +333,16 @@ $g.DrawString("10 Interactive Notch Tabs", $hTitleF, $hTitleB, 48.0, 26.0)
 $g.DrawString("Hover the notch or press Ctrl+Alt+Y to expand into a full media, productivity, and utility command center.", $hSubF, $hSubB, 50.0, 70.0)
 
 $tabCards = @(
-    @{ Num = "01"; Title = "Media & Synced Lyrics"; Desc = "SMTC playback, album-art accent & LRCLIB karaoke scroll"; Shot = "aberto-musica.png"; WallA = [System.Drawing.Color]::FromArgb(255, 22, 24, 56); WallB = [System.Drawing.Color]::FromArgb(255, 44, 28, 78) },
-    @{ Num = "02"; Title = "Calendar & Agenda"; Desc = "Interactive month grid, Google Calendar & one-click Join"; Shot = "aberto-agenda.png"; WallA = [System.Drawing.Color]::FromArgb(255, 16, 28, 48); WallB = [System.Drawing.Color]::FromArgb(255, 24, 42, 68) },
-    @{ Num = "03"; Title = "Focus (Pomodoro)"; Desc = "Focus/break cycles, task linking & 7-day progress bars"; Shot = "aberto-foco.png"; WallA = [System.Drawing.Color]::FromArgb(255, 20, 26, 44); WallB = [System.Drawing.Color]::FromArgb(255, 34, 38, 64) },
-    @{ Num = "04"; Title = "Water Tracker"; Desc = "One-tap hydration logging, undo & hourly reminders"; Shot = "aberto-agua.png"; WallA = [System.Drawing.Color]::FromArgb(255, 12, 30, 48); WallB = [System.Drawing.Color]::FromArgb(255, 18, 48, 72) },
-    @{ Num = "05"; Title = "Prayer Times (Celestial Horizon)"; Desc = "Astronomical times, Hijri date, sunset arc & pre-alerts"; Shot = "aberto-pray.png"; WallA = [System.Drawing.Color]::FromArgb(255, 14, 32, 34); WallB = [System.Drawing.Color]::FromArgb(255, 24, 46, 44) },
-    @{ Num = "06"; Title = "Tasks & Natural Reminders"; Desc = "Natural time parsing ('at 3pm') & Google Tasks sync"; Shot = "aberto-tarefas.png"; WallA = [System.Drawing.Color]::FromArgb(255, 22, 24, 40); WallB = [System.Drawing.Color]::FromArgb(255, 34, 36, 58) },
-    @{ Num = "07"; Title = "File Shelf & Magnetic Drop"; Desc = "Drag files onto the notch to stash, preview & drag out"; Shot = "aberto-prateleira-drop.png"; WallA = [System.Drawing.Color]::FromArgb(255, 24, 22, 52); WallB = [System.Drawing.Color]::FromArgb(255, 40, 32, 76) },
-    @{ Num = "08"; Title = "Notification Center"; Desc = "Windows toast listener, unread badge & Mochi alerts"; Shot = "aberto-notificacoes.png"; WallA = [System.Drawing.Color]::FromArgb(255, 28, 22, 42); WallB = [System.Drawing.Color]::FromArgb(255, 46, 28, 54) },
-    @{ Num = "09"; Title = "Clipboard History"; Desc = "Text, files & bitmap capture with pinning & live preview"; Shot = "aberto-clipboard.png"; WallA = [System.Drawing.Color]::FromArgb(255, 18, 28, 46); WallB = [System.Drawing.Color]::FromArgb(255, 28, 42, 68) },
-    @{ Num = "10"; Title = "Weather (Atmospheric Horizon)"; Desc = "Open-Meteo forecast, hourly curve & rain warnings"; Shot = "aberto-weather.png"; WallA = [System.Drawing.Color]::FromArgb(255, 26, 26, 42); WallB = [System.Drawing.Color]::FromArgb(255, 44, 38, 56) }
+    @{ Num = "01"; Title = "Media & Synced Lyrics"; Desc = "SMTC playback, album-art accent & LRCLIB karaoke scroll"; Shot = "open-media.png"; WallA = [System.Drawing.Color]::FromArgb(255, 22, 24, 56); WallB = [System.Drawing.Color]::FromArgb(255, 44, 28, 78) },
+    @{ Num = "02"; Title = "Calendar & Agenda"; Desc = "Interactive month grid, Google Calendar & one-click Join"; Shot = "open-agenda.png"; WallA = [System.Drawing.Color]::FromArgb(255, 16, 28, 48); WallB = [System.Drawing.Color]::FromArgb(255, 24, 42, 68) },
+    @{ Num = "03"; Title = "Focus (Pomodoro)"; Desc = "Focus/break cycles, task linking & 7-day progress bars"; Shot = "open-focus.png"; WallA = [System.Drawing.Color]::FromArgb(255, 20, 26, 44); WallB = [System.Drawing.Color]::FromArgb(255, 34, 38, 64) },
+    @{ Num = "04"; Title = "Water Tracker"; Desc = "One-tap hydration logging, undo & hourly reminders"; Shot = "open-water.png"; WallA = [System.Drawing.Color]::FromArgb(255, 12, 30, 48); WallB = [System.Drawing.Color]::FromArgb(255, 18, 48, 72) },
+    @{ Num = "05"; Title = "Prayer Times (Celestial Horizon)"; Desc = "Astronomical times, Hijri date, sunset arc & pre-alerts"; Shot = "open-pray.png"; WallA = [System.Drawing.Color]::FromArgb(255, 14, 32, 34); WallB = [System.Drawing.Color]::FromArgb(255, 24, 46, 44) },
+    @{ Num = "06"; Title = "Tasks & Natural Reminders"; Desc = "Natural time parsing ('at 3pm') & Google Tasks sync"; Shot = "open-tasks.png"; WallA = [System.Drawing.Color]::FromArgb(255, 22, 24, 40); WallB = [System.Drawing.Color]::FromArgb(255, 34, 36, 58) },
+    @{ Num = "07"; Title = "File Shelf & Magnetic Drop"; Desc = "Drag files onto the notch to stash, preview & drag out"; Shot = "open-shelf-drop.png"; WallA = [System.Drawing.Color]::FromArgb(255, 24, 22, 52); WallB = [System.Drawing.Color]::FromArgb(255, 40, 32, 76) },
+    @{ Num = "08"; Title = "Notification Center"; Desc = "Windows toast listener, unread badge & Mochi alerts"; Shot = "open-notifications.png"; WallA = [System.Drawing.Color]::FromArgb(255, 28, 22, 42); WallB = [System.Drawing.Color]::FromArgb(255, 46, 28, 54) },
+    @{ Num = "09"; Title = "Clipboard History"; Desc = "Text, files & bitmap capture with pinning & live preview"; Shot = "open-clipboard.png"; WallA = [System.Drawing.Color]::FromArgb(255, 18, 28, 46); WallB = [System.Drawing.Color]::FromArgb(255, 28, 42, 68) },
+    @{ Num = "10"; Title = "Weather (Atmospheric Horizon)"; Desc = "Open-Meteo forecast, hourly curve & rain warnings"; Shot = "open-weather.png"; WallA = [System.Drawing.Color]::FromArgb(255, 26, 26, 42); WallB = [System.Drawing.Color]::FromArgb(255, 44, 38, 56) }
 )
 
 $cw = 740.0; $ch = 252.0; $gx = 24.0; $gy = 18.0
@@ -410,7 +410,7 @@ $bezelB = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(
 $g.FillRectangle($bezelB, $lx, $ly, $lw, 12.0)
 $bezelB.Dispose()
 
-$null = Draw-ShotAnchored $g "aberto-copilot.png" ($lx + $lw * 0.5) ($ly + 10.0) 880.0 210.0
+$null = Draw-ShotAnchored $g "open-copilot.png" ($lx + $lw * 0.5) ($ly + 10.0) 880.0 210.0
 $g.Restore($state)
 $lPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(42, 255, 255, 255), 1.4)
 $g.DrawPath($lPen, $lp)
@@ -419,8 +419,8 @@ $lPen.Dispose(); $lp.Dispose()
 # Two mini top-bezel sub-cards inside bottom of left panel
 $subW = 428.0; $subH = 154.0; $subY = $ly + 244.0
 $subItems = @(
-    @{ X = $lx + 22.0; Shot = "fechado-copilot.png"; Label = "Live Agent Progress Bubble"; WallA = [System.Drawing.Color]::FromArgb(255, 18, 28, 54); WallB = [System.Drawing.Color]::FromArgb(255, 28, 36, 72) },
-    @{ X = $lx + 470.0; Shot = "fechado-agente-aviso.png"; Label = "Completion & Attention Alert"; WallA = [System.Drawing.Color]::FromArgb(255, 32, 22, 46); WallB = [System.Drawing.Color]::FromArgb(255, 52, 28, 54) }
+    @{ X = $lx + 22.0; Shot = "closed-copilot.png"; Label = "Live Agent Progress Bubble"; WallA = [System.Drawing.Color]::FromArgb(255, 18, 28, 54); WallB = [System.Drawing.Color]::FromArgb(255, 28, 36, 72) },
+    @{ X = $lx + 470.0; Shot = "closed-agent-alert.png"; Label = "Completion & Attention Alert"; WallA = [System.Drawing.Color]::FromArgb(255, 32, 22, 46); WallB = [System.Drawing.Color]::FromArgb(255, 52, 28, 54) }
 )
 $subLblF = New-Object System.Drawing.Font("Segoe UI", 10.5, [System.Drawing.FontStyle]::Bold)
 foreach ($si in $subItems) {

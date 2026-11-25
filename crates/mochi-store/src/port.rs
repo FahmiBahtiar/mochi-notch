@@ -1,119 +1,150 @@
-//! Pure store JSON schema normalization and clamping rules.
+//! Pure store schema, deserialization resilience, and clamping normalization rules.
 
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde::{Deserialize, Deserializer, Serialize};
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn vec_skip_nulls<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    let opt = Option::<Vec<Option<T>>>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default().into_iter().flatten().collect())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HudKind {
+    Reminder,
+    Volume,
+    Brightness,
+    Power,
+    AudioDevice,
+    CapsLock,
+    KeyboardLayout,
+    Network,
+    Privacy,
+    Weather,
+    Activity,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct SettingsData {
+pub struct SettingsData {
     #[serde(default)]
-    language: Option<String>,
+    pub language: Option<String>,
     #[serde(default = "default_true")]
-    hide_in_fullscreen: bool,
+    pub hide_in_fullscreen: bool,
     #[serde(default = "default_true")]
-    hide_from_capture: bool,
+    pub hide_from_capture: bool,
     #[serde(default = "default_140")]
-    hover_delay_ms: i32,
+    pub hover_delay_ms: i32,
     #[serde(default)]
-    calm_motion: bool,
+    pub calm_motion: bool,
     #[serde(default = "default_true")]
-    use_artwork_accent: bool,
+    pub use_artwork_accent: bool,
     #[serde(default)]
-    monitor: Option<String>,
+    pub monitor: Option<String>,
     #[serde(default = "default_true")]
-    hotkey_enabled: bool,
+    pub hotkey_enabled: bool,
     #[serde(default)]
-    jump_hotkey_enabled: bool,
+    pub jump_hotkey_enabled: bool,
     #[serde(default)]
-    mic_hotkey_enabled: bool,
+    pub mic_hotkey_enabled: bool,
     #[serde(default = "default_true")]
-    lyrics_enabled: bool,
+    pub lyrics_enabled: bool,
     #[serde(default)]
-    update_check_enabled: bool,
+    pub update_check_enabled: bool,
     #[serde(default = "default_5")]
-    calendar_reminder_minutes: i32,
+    pub calendar_reminder_minutes: i32,
     #[serde(default = "default_true")]
-    calendar_in_compact: bool,
+    pub calendar_in_compact: bool,
     #[serde(default)]
-    calendar_ids: Option<Vec<String>>,
+    pub calendar_ids: Option<Vec<String>>,
     #[serde(default)]
-    tasks_sync_enabled: bool,
+    pub tasks_sync_enabled: bool,
     #[serde(default)]
-    tasks_list_id: Option<String>,
+    pub tasks_list_id: Option<String>,
     #[serde(default)]
-    tasks_list_name: Option<String>,
+    pub tasks_list_name: Option<String>,
     #[serde(default)]
-    weather_enabled: bool,
+    pub weather_enabled: bool,
     #[serde(default)]
-    weather_place: Option<String>,
+    pub weather_place: Option<String>,
     #[serde(default)]
-    weather_latitude: Option<f64>,
+    pub weather_latitude: Option<f64>,
     #[serde(default)]
-    weather_longitude: Option<f64>,
+    pub weather_longitude: Option<f64>,
     #[serde(default = "default_true")]
-    weather_rain_alerts: bool,
+    pub weather_rain_alerts: bool,
     #[serde(default = "default_true")]
-    pray_alerts_enabled: bool,
+    pub pray_alerts_enabled: bool,
     #[serde(default = "default_10")]
-    pray_pre_alert_minutes: i32,
+    pub pray_pre_alert_minutes: i32,
     #[serde(default = "default_kemenag")]
-    pray_method: String,
+    pub pray_method: String,
     #[serde(default)]
-    pray_muted: Vec<String>,
+    pub pray_muted: Vec<String>,
     #[serde(default)]
-    pray_place: Option<String>,
+    pub pray_place: Option<String>,
     #[serde(default)]
-    pray_latitude: Option<f64>,
+    pub pray_latitude: Option<f64>,
     #[serde(default)]
-    pray_longitude: Option<f64>,
+    pub pray_longitude: Option<f64>,
     #[serde(default = "default_true")]
-    sounds_enabled: bool,
+    pub sounds_enabled: bool,
     #[serde(default = "default_true")]
-    quiet_during_calls: bool,
+    pub quiet_during_calls: bool,
     #[serde(default = "default_true")]
-    hud_volume: bool,
+    pub hud_volume: bool,
     #[serde(default = "default_true")]
-    hud_brightness: bool,
+    pub hud_brightness: bool,
     #[serde(default = "default_true")]
-    hud_power: bool,
+    pub hud_power: bool,
     #[serde(default = "default_true")]
-    hud_audio_device: bool,
+    pub hud_audio_device: bool,
     #[serde(default = "default_true")]
-    hud_caps_lock: bool,
+    pub hud_caps_lock: bool,
     #[serde(default = "default_true")]
-    hud_keyboard_layout: bool,
+    pub hud_keyboard_layout: bool,
     #[serde(default = "default_true")]
-    hud_network: bool,
+    pub hud_network: bool,
     #[serde(default = "default_true")]
-    hud_privacy: bool,
+    pub hud_privacy: bool,
     #[serde(default = "default_true")]
-    activities_enabled: bool,
+    pub activities_enabled: bool,
     #[serde(default)]
-    copilot_hooks_initialized: bool,
+    pub copilot_hooks_initialized: bool,
     #[serde(default = "default_25")]
-    focus_minutes: i32,
+    pub focus_minutes: i32,
     #[serde(default = "default_5")]
-    short_break_minutes: i32,
+    pub short_break_minutes: i32,
     #[serde(default = "default_15")]
-    long_break_minutes: i32,
+    pub long_break_minutes: i32,
     #[serde(default = "default_4")]
-    sessions_per_cycle: i32,
+    pub sessions_per_cycle: i32,
     #[serde(default = "default_true")]
-    pause_focus_when_away: bool,
+    pub pause_focus_when_away: bool,
     #[serde(default = "default_120")]
-    focus_goal_minutes: i32,
+    pub focus_goal_minutes: i32,
     #[serde(default = "default_true")]
-    companion_enabled: bool,
+    pub companion_enabled: bool,
     #[serde(default = "default_2")]
-    companion_idle_minutes: i32,
+    pub companion_idle_minutes: i32,
     #[serde(default = "default_10")]
-    companion_sleep_minutes: i32,
+    pub companion_sleep_minutes: i32,
     #[serde(default = "default_true")]
-    away_summary_enabled: bool,
+    pub away_summary_enabled: bool,
 }
 
 impl Default for SettingsData {
@@ -175,21 +206,38 @@ impl Default for SettingsData {
     }
 }
 
+impl SettingsData {
+    pub fn shows(&self, kind: HudKind) -> bool {
+        match kind {
+            HudKind::Volume => self.hud_volume,
+            HudKind::Brightness => self.hud_brightness,
+            HudKind::Power => self.hud_power,
+            HudKind::AudioDevice => self.hud_audio_device,
+            HudKind::CapsLock => self.hud_caps_lock,
+            HudKind::KeyboardLayout => self.hud_keyboard_layout,
+            HudKind::Network => self.hud_network,
+            HudKind::Privacy => self.hud_privacy,
+            HudKind::Activity => self.activities_enabled,
+            HudKind::Reminder | HudKind::Weather => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct WaterData {
+pub struct WaterData {
     #[serde(default = "default_2000")]
-    goal_ml: i32,
+    pub goal_ml: i32,
     #[serde(default = "default_250")]
-    cup_ml: i32,
+    pub cup_ml: i32,
     #[serde(default = "default_60")]
-    reminder_minutes: i32,
+    pub reminder_minutes: i32,
     #[serde(default)]
-    reminders_enabled: bool,
+    pub reminders_enabled: bool,
     #[serde(default)]
-    last_drink: Option<String>,
-    #[serde(default)]
-    days: Option<BTreeMap<String, i32>>,
+    pub last_drink: Option<String>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub days: BTreeMap<String, i32>,
 }
 
 impl Default for WaterData {
@@ -200,120 +248,98 @@ impl Default for WaterData {
             reminder_minutes: 60,
             reminders_enabled: false,
             last_drink: None,
-            days: Some(BTreeMap::new()),
+            days: BTreeMap::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct FocusData {
+pub struct FocusData {
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub days: BTreeMap<String, i32>,
     #[serde(default)]
-    days: Option<BTreeMap<String, i32>>,
-    #[serde(default)]
-    task_id: Option<String>,
+    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct TaskData {
+pub struct TaskData {
     #[serde(default = "default_guid")]
-    id: String,
+    pub id: String,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub text: String,
     #[serde(default)]
-    text: Option<String>,
+    pub done: bool,
     #[serde(default)]
-    done: bool,
+    pub due: Option<String>,
     #[serde(default)]
-    due: Option<String>,
+    pub due_all_day: bool,
     #[serde(default)]
-    due_all_day: bool,
+    pub reminded: bool,
     #[serde(default)]
-    reminded: bool,
+    pub google_id: Option<String>,
     #[serde(default)]
-    google_id: Option<String>,
-    #[serde(default)]
-    dirty: bool,
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct ClipboardEntryData {
+pub struct ClipboardEntryData {
     #[serde(default)]
-    text: String,
+    pub text: String,
     #[serde(default)]
-    pinned: bool,
+    pub pinned: bool,
     #[serde(default)]
-    at: String,
+    pub at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct UpdateData {
+pub struct UpdateData {
     #[serde(default)]
-    last_check: Option<String>,
+    pub last_check: Option<String>,
     #[serde(default)]
-    latest: Option<String>,
+    pub latest: Option<String>,
     #[serde(default)]
-    announced: Option<String>,
+    pub announced: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct StoreData {
+pub struct StoreData {
     #[serde(default = "default_1")]
-    schema_version: i32,
-    #[serde(default = "default_some_settings")]
-    settings: Option<SettingsData>,
-    #[serde(default = "default_some_water")]
-    water: Option<WaterData>,
-    #[serde(default = "default_some_focus")]
-    focus: Option<FocusData>,
-    #[serde(default = "default_some_vec")]
-    tasks: Option<Vec<Option<TaskData>>>,
-    #[serde(default = "default_some_vec")]
-    task_deletes: Option<Vec<Option<String>>>,
-    #[serde(default = "default_some_vec")]
-    shelf: Option<Vec<Option<String>>>,
-    #[serde(default = "default_some_vec")]
-    clipboard: Option<Vec<Option<ClipboardEntryData>>>,
-    #[serde(default = "default_some_updates")]
-    updates: Option<UpdateData>,
-}
-
-fn default_some_settings() -> Option<SettingsData> {
-    Some(SettingsData::default())
-}
-fn default_some_water() -> Option<WaterData> {
-    Some(WaterData::default())
-}
-fn default_some_focus() -> Option<FocusData> {
-    Some(FocusData {
-        days: Some(BTreeMap::new()),
-        task_id: None,
-    })
-}
-fn default_some_vec<T>() -> Option<Vec<T>> {
-    Some(Vec::new())
-}
-fn default_some_updates() -> Option<UpdateData> {
-    Some(UpdateData::default())
+    pub schema_version: i32,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub settings: SettingsData,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub water: WaterData,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub focus: FocusData,
+    #[serde(default, deserialize_with = "vec_skip_nulls")]
+    pub tasks: Vec<TaskData>,
+    #[serde(default, deserialize_with = "vec_skip_nulls")]
+    pub task_deletes: Vec<String>,
+    #[serde(default, deserialize_with = "vec_skip_nulls")]
+    pub shelf: Vec<String>,
+    #[serde(default, deserialize_with = "vec_skip_nulls")]
+    pub clipboard: Vec<ClipboardEntryData>,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub updates: UpdateData,
 }
 
 impl Default for StoreData {
     fn default() -> Self {
         Self {
             schema_version: 1,
-            settings: Some(SettingsData::default()),
-            water: Some(WaterData::default()),
-            focus: Some(FocusData {
-                days: Some(BTreeMap::new()),
-                task_id: None,
-            }),
-            tasks: Some(Vec::new()),
-            task_deletes: Some(Vec::new()),
-            shelf: Some(Vec::new()),
-            clipboard: Some(Vec::new()),
-            updates: Some(UpdateData::default()),
+            settings: SettingsData::default(),
+            water: WaterData::default(),
+            focus: FocusData::default(),
+            tasks: Vec::new(),
+            task_deletes: Vec::new(),
+            shelf: Vec::new(),
+            clipboard: Vec::new(),
+            updates: UpdateData::default(),
         }
     }
 }
@@ -364,14 +390,12 @@ fn default_kemenag() -> String {
     "Kemenag".to_string()
 }
 
-pub fn normalize_store_json(json_str: String) -> Result<Value, String> {
-    let mut data: StoreData = serde_json::from_str(&json_str).unwrap_or_default();
+pub fn normalize_store_data(data: &mut StoreData) {
     if data.schema_version < 1 {
         data.schema_version = 1;
     }
-    let before = serde_json::to_string(&data).unwrap_or_default();
 
-    let mut s = data.settings.unwrap_or_default();
+    let s = &mut data.settings;
     s.language = match s.language.as_deref() {
         Some("en") => Some("en".to_string()),
         Some("id") | Some("id-ID") => Some("id".to_string()),
@@ -387,76 +411,21 @@ pub fn normalize_store_json(json_str: String) -> Result<Value, String> {
     s.companion_idle_minutes = s.companion_idle_minutes.clamp(1, 30);
     s.companion_sleep_minutes = s.companion_sleep_minutes.clamp(2, 120);
     s.pray_pre_alert_minutes = s.pray_pre_alert_minutes.clamp(0, 60);
-    data.settings = Some(s);
 
-    let mut w = data.water.unwrap_or_default();
-    if w.days.is_none() {
-        w.days = Some(BTreeMap::new());
-    }
+    let w = &mut data.water;
     w.goal_ml = w.goal_ml.clamp(500, 5000);
     w.cup_ml = w.cup_ml.clamp(50, 1000);
     w.reminder_minutes = w.reminder_minutes.clamp(15, 240);
-    data.water = Some(w);
 
-    let mut f = data.focus.unwrap_or_default();
-    if f.days.is_none() {
-        f.days = Some(BTreeMap::new());
-    }
-    data.focus = Some(f);
+    data.task_deletes.retain(|id| !id.is_empty());
+    data.shelf.retain(|p| !p.trim().is_empty());
+    data.clipboard.retain(|c| !c.text.trim().is_empty());
+}
 
-    if data.updates.is_none() {
-        data.updates = Some(UpdateData::default());
-    }
-
-    let tasks: Vec<Option<TaskData>> = data
-        .tasks
-        .unwrap_or_default()
-        .into_iter()
-        .flatten()
-        .map(|mut t| {
-            if t.text.is_none() {
-                t.text = Some(String::new());
-            }
-            Some(t)
-        })
-        .collect();
-    data.tasks = Some(tasks);
-
-    let deletes: Vec<Option<String>> = data
-        .task_deletes
-        .unwrap_or_default()
-        .into_iter()
-        .flatten()
-        .filter(|id| !id.is_empty())
-        .map(Some)
-        .collect();
-    data.task_deletes = Some(deletes);
-
-    let shelf: Vec<Option<String>> = data
-        .shelf
-        .unwrap_or_default()
-        .into_iter()
-        .flatten()
-        .filter(|p| !p.trim().is_empty())
-        .map(Some)
-        .collect();
-    data.shelf = Some(shelf);
-
-    let clipboard: Vec<Option<ClipboardEntryData>> = data
-        .clipboard
-        .unwrap_or_default()
-        .into_iter()
-        .flatten()
-        .filter(|c| !c.text.trim().is_empty())
-        .map(Some)
-        .collect();
-    data.clipboard = Some(clipboard);
-
-    let after = serde_json::to_string(&data).unwrap_or_default();
-    Ok(json!({
-        "Changed": after != before,
-        "NormalizedJson": after,
-    }))
+pub fn parse_and_normalize_store(json_str: &str) -> Result<StoreData, serde_json::Error> {
+    let mut data: StoreData = serde_json::from_str(json_str)?;
+    normalize_store_data(&mut data);
+    Ok(data)
 }
 
 #[cfg(test)]
@@ -465,12 +434,14 @@ mod tests {
 
     #[test]
     fn clamps_out_of_range_settings_and_preserves_prayer_and_clipboard() {
-        let raw = r#"{"Settings":{"Language":"pt-BR","HoverDelayMs":9999,"PrayMethod":"MWL"},"Clipboard":[{"Text":"hi","Pinned":true,"At":"2026-11-24T10:00:00"}]}"#;
-        let res = normalize_store_json(raw.to_string()).unwrap();
-        let norm: Value = serde_json::from_str(res["NormalizedJson"].as_str().unwrap()).unwrap();
-        assert!(norm["Settings"]["Language"].is_null());
-        assert_eq!(norm["Settings"]["HoverDelayMs"], 1000);
-        assert_eq!(norm["Settings"]["PrayMethod"], "MWL");
-        assert_eq!(norm["Clipboard"][0]["Text"], "hi");
+        let raw = r#"{"Settings":{"Language":"pt-BR","HoverDelayMs":9999,"PrayMethod":"MWL"},"Tasks":[null,{"Text":null}],"Clipboard":[{"Text":"hi","Pinned":true,"At":"2026-11-24T10:00:00"}]}"#;
+        let data = parse_and_normalize_store(raw).unwrap();
+        assert!(data.settings.language.is_none());
+        assert_eq!(data.settings.hover_delay_ms, 1000);
+        assert_eq!(data.settings.pray_method, "MWL");
+        assert_eq!(data.tasks.len(), 1);
+        assert_eq!(data.tasks[0].text, "");
+        assert_eq!(data.clipboard.len(), 1);
+        assert_eq!(data.clipboard[0].text, "hi");
     }
 }

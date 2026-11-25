@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use serde_json::json;
+use mochi_media::port::{PlayerChoice, SessionCandidate};
 use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
@@ -39,53 +39,6 @@ impl MediaState {
             self.duration_secs
         } else {
             pos
-        }
-    }
-}
-
-#[derive(Default)]
-struct PlayerChoice {
-    playing: HashMap<String, bool>,
-    removed: HashSet<String>,
-    chosen: Option<String>,
-}
-
-impl PlayerChoice {
-    fn is_removed(&self, id: &str) -> bool {
-        self.removed.contains(id)
-    }
-
-    fn seen(&mut self, id: &str, playing: bool) -> bool {
-        let started = playing && self.playing.get(id).copied() == Some(false);
-        self.playing.insert(id.to_string(), playing);
-        if !started {
-            return false;
-        }
-        let mut changed = self.removed.remove(id);
-        if self.chosen.as_deref().is_some_and(|c| c != id) {
-            self.chosen = None;
-            changed = true;
-        }
-        changed
-    }
-
-    fn choose(&mut self, id: &str) {
-        self.chosen = Some(id.to_string());
-        self.removed.remove(id);
-    }
-
-    fn remove(&mut self, id: &str) {
-        self.removed.insert(id.to_string());
-        if self.chosen.as_deref() == Some(id) {
-            self.chosen = None;
-        }
-    }
-
-    fn keep(&mut self, open: &HashSet<String>) {
-        self.playing.retain(|k, _| open.contains(k));
-        self.removed.retain(|k| open.contains(k));
-        if self.chosen.as_deref().is_some_and(|c| !open.contains(c)) {
-            self.chosen = None;
         }
     }
 }
@@ -409,25 +362,21 @@ fn run_media_loop(
                         .GetCurrentSession()
                         .ok()
                         .filter(|cur| app_id_of(cur).is_none_or(|id| !choice.is_removed(&id)));
-                    let candidates: Vec<_> = players
+                    let candidates: Vec<SessionCandidate> = players
                         .iter()
-                        .map(|(s, id, playing)| {
-                            let is_shown = active_session
+                        .map(|(s, id, playing)| SessionCandidate {
+                            is_playing: *playing,
+                            is_shown: active_session
                                 .as_ref()
-                                .is_some_and(|cur| same_session(s, cur));
-                            let is_sys = sys_cur.as_ref().is_some_and(|cur| same_session(s, cur));
-                            let is_unt = id.as_ref().is_some_and(|i| untitled.contains(i));
-                            json!({
-                                "IsPlaying": *playing,
-                                "IsShown": is_shown,
-                                "IsSystemCurrent": is_sys,
-                                "IsUntitled": is_unt,
-                            })
+                                .is_some_and(|cur| same_session(s, cur)),
+                            is_system_current: sys_cur
+                                .as_ref()
+                                .is_some_and(|cur| same_session(s, cur)),
+                            is_untitled: id.as_ref().is_some_and(|i| untitled.contains(i)),
                         })
                         .collect();
-                    let idx = mochi_media::port::pick_media_session(Some(candidates)).unwrap_or(-1);
-                    if idx >= 0 && (idx as usize) < players.len() {
-                        Some(players[idx as usize].0.clone())
+                    if let Some(idx) = mochi_media::port::pick_media_session(&candidates) {
+                        Some(players[idx].0.clone())
                     } else {
                         sys_cur
                     }
