@@ -569,7 +569,11 @@ impl NotchApp {
         let now_local = Local::now();
         let now_str = now_local.format("%H:%M").to_string();
         let today = now_local.date_naive();
-        let reduce_motion = is_motion_reduced();
+        let reduce_motion = if cfg!(test) {
+            false
+        } else {
+            is_motion_reduced()
+        };
 
         let mut app = Self {
             store,
