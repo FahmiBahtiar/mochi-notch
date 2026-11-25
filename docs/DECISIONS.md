@@ -14,7 +14,7 @@ Consequences: Clean separation between safe domain logic, Windows platform integ
 
 ## ADR-002: Native Win32 + Direct2D + DirectWrite UI Renderer
 Status: accepted
-Context: Mochi requires subtree opacity cross-fades (`CompactView`/`ExpandedView`/`HudView`/`NewsView`/`AmbientView`), arbitrary Bezier path clipping (`build_notch_geometry` concave ears), absolute-coordinate `LinearGradientBrush` opacity masks (`LyricsPanel`, `MarqueeText`), per-pixel transparent click-through (`WM_NCHITTEST` returning `HTTRANSPARENT` over shadow regions + `WS_EX_LAYERED`), `WS_EX_NOACTIVATE` focus-free interaction with dynamic keyboard mode for Tasks, and 100 Hz DWM-vsync-locked rendering without DXGI swapchain resize stutter.
+Context: Mochi requires subtree opacity cross-fades (`CompactView`/`ExpandedView`/`HudView`/`NewsView`/`AmbientView`), arbitrary Bezier path clipping (`build_notch_geometry` concave ears), absolute-coordinate `LinearGradientBrush` opacity masks (`LyricsPanel`, `MarqueeText`), dynamic click-through (`WS_EX_TRANSPARENT` toggled outside interactive hit targets + `WS_EX_LAYERED`), `WS_EX_NOACTIVATE` focus-free interaction with dynamic keyboard mode for Tasks, and 100 Hz DWM-vsync-locked rendering without DXGI swapchain resize stutter.
 Decision: Implement `mochi-ui` directly on Win32 + Direct2D + DirectWrite + `UpdateLayeredWindow` via `windows-rs`, locked to `DwmFlush()` vsync, with cached 9-slice `SoftShadow` bitmaps and `ID2D1Layer` geometric/gradient masks.
 Consequences: Smooth 100 Hz animations, zero swapchain resize jank, native `Segoe UI Variable` + `Segoe Fluent Icons` rendering, native drag-and-drop, and low idle CPU/memory usage.
 
@@ -30,7 +30,7 @@ Decision:
 - Named pipe: `\\.\pipe\Mochi.{UserSID}.{SessionID}` (UTF-8 newline-terminated JSON request in, plain text `"ok\n"` or error line out; fail-closed user SID allow + NetworkSid deny ACL + `PIPE_REJECT_REMOTE_CLIENTS`).
 - Single-instance mutex: `Mochi.SingleInstance`.
 - `mochi-cli` exit codes: `0` ok, `1` bad args, `2` Mochi not running, `3` refused.
-- Companion sprites: `crates/mochi-ui/assets/Robo/{idle,alert,jump,no,thinking,yes}/frame_*.png`.
+- Companion visuals: procedural Direct2D Cozmo eyes & visor (`crates/mochi-ui/src/features/companion/render.rs`).
 Consequences: Seamless upgrade path for existing users and reliable local IPC for agent hooks.
 
 ## ADR-004: Quality & Performance Gate

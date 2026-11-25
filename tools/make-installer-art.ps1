@@ -1,6 +1,7 @@
-# Generates DPI-matched Inno Setup 6.6+ wizard artwork for Mochi:
+# Generates DPI-matched Inno Setup 6.6+ wizard artwork and plugin icon for Mochi:
 #   installer/wizard-image-{100,125,150,175,200}.png
 #   installer/wizard-small-{100,125,150,175,200}.png
+#   integrations/claude-code/.claude-plugin/icon.png
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
@@ -104,4 +105,40 @@ foreach ($scale in $areas.Keys) {
     Save-WizardImage $w $h (Join-Path $outDir "wizard-image-$scale.png")
     Save-WizardSmall $side (Join-Path $outDir "wizard-small-$scale.png")
 }
-"Generated installer wizard artwork in $outDir"
+
+function Save-PluginIcon([int]$side, [string]$path) {
+    $bmp = New-Object System.Drawing.Bitmap($side, $side, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+    $g.Clear([System.Drawing.Color]::Transparent)
+
+    $pad = $side * 0.04
+    $box = $side - 2.0 * $pad
+    $rad = $box * 0.24
+    $bgPath = New-RR $pad $pad $box $box $rad
+    $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 14, 14, 17))
+    $rimPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 46, 48, 56), [float]($side * 0.02))
+    $g.FillPath($bgBrush, $bgPath)
+    $g.DrawPath($rimPen, $bgPath)
+
+    $cx = $side * 0.5
+    $cy = $side * 0.5
+    $gap = $side * 0.185
+    $ew = $side * 0.21
+    $eh = $side * 0.24
+    $er = $ew * 0.36
+    $wb = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(255, 248, 249, 252))
+    foreach ($sign in @(-1, 1)) {
+        $ep = New-RR ($cx + $sign * $gap - $ew * 0.5) ($cy - $eh * 0.5) $ew $eh $er
+        $g.FillPath($wb, $ep)
+        $ep.Dispose()
+    }
+
+    $wb.Dispose(); $rimPen.Dispose(); $bgBrush.Dispose(); $bgPath.Dispose(); $g.Dispose()
+    $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+
+$pluginIcon = Join-Path $root "integrations\claude-code\.claude-plugin\icon.png"
+Save-PluginIcon 600 $pluginIcon
+"Generated installer wizard artwork in $outDir and plugin icon at $pluginIcon"
