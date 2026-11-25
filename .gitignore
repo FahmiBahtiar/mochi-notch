@@ -1,0 +1,27 @@
+/target/
+**/*.pdb
+*.user
+*.suo
+
+# Secrets & credentials (never commit)
+client_secret*.json
+google-client.json
+*.dat
+.env
+.env.*
+
+# Build artifacts
+dist/
+publish/
+
+# Local AI assistant rules & skills
+.agents/
+.aider-desk/
+
+# Runtime data & logs (local only)
+data.json
+*.log
+*.bad
+*.mochi-backup
+vitrine.json
+bench-frames.csv

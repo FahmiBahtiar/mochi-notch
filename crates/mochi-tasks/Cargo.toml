@@ -1,0 +1,16 @@
+[package]
+name = "mochi-tasks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Task list, natural time parser, Google Tasks merge, and reminder formatting for Mochi"
+
+[dependencies]
+chrono = "0.4"
+regex = "1"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+
+[lints]
+workspace = true

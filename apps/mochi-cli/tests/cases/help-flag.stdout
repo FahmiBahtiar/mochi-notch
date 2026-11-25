@@ -1,0 +1,7 @@
+mochi-cli: the console side of Mochi, for scripts and AI agents.
+
+  mochi-cli activity ...                            show a task in the notch (mochi-cli activity --help)
+  mochi-cli hook copilot|claude|cursor|codex        called by an agent's hooks: its state in the notch
+  mochi-cli hook setup copilot|claude|cursor|codex  print the hooks configuration to paste
+  mochi-cli skill                                   print the agent skill (SKILL.md)
+  mochi-cli skill install                           install it for Copilot, Claude Code, Cursor and Codex

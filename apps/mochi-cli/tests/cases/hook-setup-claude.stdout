@@ -1,0 +1,14 @@
+Add to %USERPROFILE%\.claude\settings.json (merge with what's there), or install the plugin instead:
+/plugin marketplace add mochi/mochi, then /plugin install mochi@mochi
+{
+  "hooks": {
+    "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "PostToolUse":       [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "Notification":      [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "Stop":              [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "StopFailure":       [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 5 }] }],
+    "SessionEnd":        [{ "hooks": [{ "type": "command", "command": "mochi-cli hook claude", "timeout": 1 }] }]
+  }
+}

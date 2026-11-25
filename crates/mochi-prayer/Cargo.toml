@@ -1,0 +1,14 @@
+[package]
+name = "mochi-prayer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Astronomical prayer time calculation, Hijri calendar, and countdown logic for Mochi"
+
+[dependencies]
+chrono = "0.4"
+
+[lints]
+workspace = true

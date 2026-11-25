@@ -1,0 +1,4 @@
+bin.name = "mochi-cli"
+args = ["hook", "codex", '{"type":"agent-turn-complete","thread-id":"t1","cwd":"C:\\src\\Mochi"}']
+status.code = 0
+fs.sandbox = true

@@ -1,0 +1,13 @@
+Save as %USERPROFILE%\.codex\hooks.json (merge with what's there), then review and trust it with /hooks:
+{
+  "hooks": {
+    "UserPromptSubmit":  [{ "hooks": [{ "type": "command", "command": "mochi-cli hook codex", "timeout": 5 }] }],
+    "PostToolUse":       [{ "hooks": [{ "type": "command", "command": "mochi-cli hook codex", "timeout": 5 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "mochi-cli hook codex", "timeout": 5 }] }],
+    "Stop":              [{ "hooks": [{ "type": "command", "command": "mochi-cli hook codex", "timeout": 5 }] }],
+    "Interrupt":         [{ "hooks": [{ "type": "command", "command": "mochi-cli hook codex", "timeout": 2 }] }],
+    "SessionEnd":        [{ "hooks": [{ "type": "command", "command": "mochi-cli hook codex", "timeout": 2 }] }]
+  }
+}
+Older Codex without hooks: put notify = ["mochi-cli", "hook", "codex"] at the top of
+%USERPROFILE%\.codex\config.toml (only "done" is shown then).

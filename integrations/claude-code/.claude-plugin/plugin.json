@@ -1,0 +1,7 @@
+{
+  "name": "mochi",
+  "version": "0.3.0",
+  "description": "Shows Claude Code's state in the Mochi notch on Windows (working, waiting for you, done), and teaches Claude to put long tasks there with mochi-cli.",
+  "author": { "name": "FahmiBahtiar" },
+  "license": "MIT"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "mochi",
+  "owner": {
+    "name": "FahmiBahtiar"
+  },
+  "metadata": {
+    "description": "Mochi, the open-source notch for Windows: AI agents' state and long tasks in the notch."
+  },
+  "plugins": [
+    {
+      "name": "mochi",
+      "source": "./integrations/claude-code",
+      "description": "Claude Code's state in the Mochi notch on Windows, and a skill for long tasks. Needs Mochi with mochi-cli on PATH."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+bin.name = "mochi-cli"
+args = ["hook", "codex"]
+status.code = 0
+fs.sandbox = true

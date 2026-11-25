@@ -1,0 +1,15 @@
+[package]
+name = "mochi-weather"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Weather report parsing, geocoding place parsing, and coordinate rounding for Mochi"
+
+[dependencies]
+chrono = "0.4"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "mochi-shelf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "File shelf path deduplication, display naming, and image detection for Mochi"
+
+[lints]
+workspace = true

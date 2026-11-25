@@ -1,0 +1,13 @@
+Save as %USERPROFILE%\.cursor\hooks.json (merge with what's there):
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt":  [{ "command": "mochi-cli hook cursor", "timeout": 5 }],
+    "postToolUse":         [{ "command": "mochi-cli hook cursor", "timeout": 5 }],
+    "afterShellExecution": [{ "command": "mochi-cli hook cursor", "timeout": 5 }],
+    "afterFileEdit":       [{ "command": "mochi-cli hook cursor", "timeout": 5 }],
+    "stop":                [{ "command": "mochi-cli hook cursor", "timeout": 5 }],
+    "sessionEnd":          [{ "command": "mochi-cli hook cursor", "timeout": 5 }]
+  }
+}
+Cursor has no event for "waiting for your approval", so that state isn't shown.

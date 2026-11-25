@@ -1,0 +1,401 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- Indonesian: same keys as Strings.resx; build.rs verifies key parity. -->
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Welcome_Title" xml:space="preserve"><value>Selamat datang di Mochi</value></data>
+  <data name="Welcome_Tip1" xml:space="preserve"><value>• Arahkan kursor ke notch di atas layar untuk membukanya.</value></data>
+  <data name="Welcome_Tip2" xml:space="preserve"><value>• Ctrl+Alt+Y membuka dan menutupnya dari mana saja.</value></data>
+  <data name="Welcome_Tip3" xml:space="preserve"><value>• Seret file ke notch untuk menyimpannya di rak.</value></data>
+  <data name="Welcome_Tip4" xml:space="preserve"><value>• Di Tugas, waktu di akhir kalimat menjadi pengingat: “Telepon Ana pukul 15”.</value></data>
+  <data name="Welcome_Water" xml:space="preserve"><value>Ingatkan saya minum air</value></data>
+  <data name="Welcome_WaterHint" xml:space="preserve"><value>Setiap jam dari 08.00 hingga 22.00, sampai target harian tercapai.</value></data>
+  <data name="Welcome_UpdatesHint" xml:space="preserve"><value>Memeriksa halaman rilis GitHub sekali sehari.</value></data>
+  <data name="Welcome_Google" xml:space="preserve"><value>Google Kalender dan Tugas ada di bagian bawah, di bawah Google.</value></data>
+  <data name="Welcome_Done" xml:space="preserve"><value>Selesai</value></data>
+  <data name="Tray_Open" xml:space="preserve"><value>Buka Mochi</value></data>
+  <data name="Tray_Hide" xml:space="preserve"><value>Sembunyikan Mochi</value></data>
+  <data name="Tray_Settings" xml:space="preserve"><value>Pengaturan…</value></data>
+  <data name="Tray_Demo" xml:space="preserve"><value>Demo Mochi</value></data>
+  <data name="Tray_Quit" xml:space="preserve"><value>Keluar</value></data>
+  <data name="Crash_Title" xml:space="preserve"><value>Mochi berhenti tiba-tiba</value></data>
+  <data name="Crash_Text" xml:space="preserve"><value>Klik untuk melihat log galat. Log hanya tersimpan di PC ini.</value></data>
+  <data name="Monitor_Label" xml:space="preserve"><value>Layar {0} · {1}×{2}</value></data>
+  <data name="Monitor_LabelPrimary" xml:space="preserve"><value>Layar {0} · {1}×{2} (utama)</value></data>
+  <data name="Common_Cancel" xml:space="preserve"><value>Batal</value></data>
+  <data name="Common_Loading" xml:space="preserve"><value>Memuat…</value></data>
+  <data name="Settings_Title" xml:space="preserve"><value>Mochi — Pengaturan</value></data>
+  <data name="Settings_Version" xml:space="preserve"><value>versi {0} · sumber terbuka (MIT)</value></data>
+  <data name="Settings_General" xml:space="preserve"><value>Umum</value></data>
+  <data name="Settings_Language" xml:space="preserve"><value>Bahasa</value></data>
+  <data name="Settings_LanguageHint" xml:space="preserve"><value>Berlaku saat Mochi dibuka berikutnya.</value></data>
+  <data name="Settings_LanguageAuto" xml:space="preserve"><value>Ikuti Windows ({0})</value></data>
+  <data name="Settings_StartWithWindows" xml:space="preserve"><value>Jalankan bersama Windows</value></data>
+  <data name="Settings_Display" xml:space="preserve"><value>Layar notch</value></data>
+  <data name="Settings_DisplayTip" xml:space="preserve"><value>Pilih layar</value></data>
+  <data name="Settings_Hotkey" xml:space="preserve"><value>Buka dan tutup dengan Ctrl+Alt+Y</value></data>
+  <data name="Settings_HotkeyHint" xml:space="preserve"><value>Windows hanya melaporkan kombinasi ini; ketikan lain tidak dibaca.</value></data>
+  <data name="Settings_JumpHotkey" xml:space="preserve"><value>Buka agen yang membutuhkan Anda dengan Ctrl+Alt+J</value></data>
+  <data name="Settings_JumpHotkeyHint" xml:space="preserve"><value>Berpindah ke jendela aktivitas paling mendesak; tekan lagi untuk berikutnya.</value></data>
+  <data name="Settings_MicHotkey" xml:space="preserve"><value>Bisukan mikrofon dengan Ctrl+Alt+M</value></data>
+  <data name="Settings_MicHotkeyHint" xml:space="preserve"><value>Membisukan di Windows sehingga semua aplikasi hening. Saat bisu, titik mikrofon berlubang.</value></data>
+  <data name="Settings_HideInFullscreen" xml:space="preserve"><value>Sembunyikan di aplikasi layar penuh</value></data>
+  <data name="Settings_HideFromCapture" xml:space="preserve"><value>Sembunyikan dari rekaman dan berbagi layar</value></data>
+  <data name="Settings_HideFromCaptureHint" xml:space="preserve"><value>Orang yang melihat layar Anda saat panggilan atau rekaman tidak melihat notch. Anda tetap melihatnya.</value></data>
+  <data name="Settings_HoverDelay" xml:space="preserve"><value>Buka saat kursor diarahkan setelah</value></data>
+  <data name="Settings_CalmMotion" xml:space="preserve"><value>Gerakan tenang</value></data>
+  <data name="Settings_CalmMotionHint" xml:space="preserve"><value>Notch membuka dan menutup tanpa pantulan pegas.</value></data>
+  <data name="Settings_Accent" xml:space="preserve"><value>Warna sampul album sebagai aksen</value></data>
+  <data name="Settings_AccentHint" xml:space="preserve"><value>Jika mati, tampilan tetap hitam dan putih.</value></data>
+  <data name="Settings_Updates" xml:space="preserve"><value>Pembaruan</value></data>
+  <data name="Settings_UpdateCheck" xml:space="preserve"><value>Beri tahu jika ada versi baru</value></data>
+  <data name="Settings_UpdateCheckHint" xml:space="preserve"><value>Memeriksa halaman rilis publik GitHub sekali sehari. Tidak ada data Anda atau PC yang dikirim. Pembaruan hanya berjalan saat Anda klik: pemasang diunduh dari GitHub dan diverifikasi sebelum dijalankan.</value></data>
+  <data name="Settings_UpdateAvailable" xml:space="preserve"><value>Versi {0} tersedia</value></data>
+  <data name="Settings_OpenDownload" xml:space="preserve"><value>Buka halaman unduhan</value></data>
+  <data name="Settings_UpdateNow" xml:space="preserve"><value>Perbarui dan mulai ulang</value></data>
+  <data name="Settings_ThisVersion" xml:space="preserve"><value>Mochi {0}</value></data>
+  <data name="Settings_CheckNow" xml:space="preserve"><value>Periksa sekarang</value></data>
+  <data name="Settings_Checking" xml:space="preserve"><value>Memeriksa…</value></data>
+  <data name="Settings_CheckFailed" xml:space="preserve"><value>Tidak dapat menjangkau GitHub. Coba lagi sebentar.</value></data>
+  <data name="Settings_LastChecked" xml:space="preserve"><value>Terakhir diperiksa {0}</value></data>
+  <data name="Settings_NeverChecked" xml:space="preserve"><value>Belum diperiksa</value></data>
+  <data name="Settings_SyncLabel" xml:space="preserve"><value>Sinkronkan dengan Google</value></data>
+  <data name="Settings_SyncNow" xml:space="preserve"><value>Sinkronkan sekarang</value></data>
+  <data name="Settings_Syncing" xml:space="preserve"><value>Menyinkronkan…</value></data>
+  <data name="Settings_LastSynced" xml:space="preserve"><value>Terakhir disinkronkan {0}</value></data>
+  <data name="Settings_NotSynced" xml:space="preserve"><value>Belum disinkronkan</value></data>
+  <data name="Settings_Forecast" xml:space="preserve"><value>Prakiraan</value></data>
+  <data name="Settings_RefreshNow" xml:space="preserve"><value>Segarkan sekarang</value></data>
+  <data name="Settings_Refreshing" xml:space="preserve"><value>Menyegarkan…</value></data>
+  <data name="Settings_ForecastFrom" xml:space="preserve"><value>Diperbarui {0}</value></data>
+  <data name="Settings_NoForecast" xml:space="preserve"><value>Belum ada prakiraan</value></data>
+  <data name="Time_TodayAt" xml:space="preserve"><value>hari ini pukul {0}</value></data>
+  <data name="Time_DayAt" xml:space="preserve"><value>{0} pukul {1}</value></data>
+  <data name="Tray_CheckUpdates" xml:space="preserve"><value>Periksa pembaruan</value></data>
+  <data name="Hud_UpToDate" xml:space="preserve"><value>Mochi sudah versi terbaru</value></data>
+  <data name="Hud_CheckFailed" xml:space="preserve"><value>Gagal memeriksa pembaruan</value></data>
+  <data name="Update_Downloading" xml:space="preserve"><value>Mengunduh dan memeriksa pemasang…</value></data>
+  <data name="Update_Installing" xml:space="preserve"><value>Memasang. Mochi akan terbuka kembali sebentar lagi.</value></data>
+  <data name="Update_UpToDate" xml:space="preserve"><value>Ini sudah versi terbaru.</value></data>
+  <data name="Update_Failed" xml:space="preserve"><value>Gagal memperbarui. Coba lagi nanti, atau gunakan halaman unduhan.</value></data>
+  <data name="Update_BadFile" xml:space="preserve"><value>File yang diunduh tidak cocok dengan rilis di GitHub, sehingga tidak dipasang.</value></data>
+  <data name="Update_Cancelled" xml:space="preserve"><value>Unduhan terlalu lama. Coba lagi.</value></data>
+  <data name="Settings_Media" xml:space="preserve"><value>Media</value></data>
+  <data name="Settings_Lyrics" xml:space="preserve"><value>Lirik tersinkron</value></data>
+  <data name="Settings_LyricsHint" xml:space="preserve"><value>Dicari di LRCLIB (lrclib.net), hanya mengirim artis, judul, dan durasi.</value></data>
+  <data name="Settings_Calendar" xml:space="preserve"><value>Kalender</value></data>
+  <data name="Settings_Allow" xml:space="preserve"><value>Izinkan</value></data>
+  <data name="Settings_RemindBefore" xml:space="preserve"><value>Ingatkan sebelum acara</value></data>
+  <data name="Settings_RemindBeforeHint" xml:space="preserve"><value>Pada 0, hanya saat acara dimulai.</value></data>
+  <data name="Settings_NextEventCompact" xml:space="preserve"><value>Acara berikutnya di notch tertutup</value></data>
+  <data name="Settings_NextEventCompactHint" xml:space="preserve"><value>Dalam 15 menit sebelumnya, menggantikan jam.</value></data>
+  <data name="Settings_Tasks" xml:space="preserve"><value>Tugas</value></data>
+  <data name="Settings_TaskList" xml:space="preserve"><value>Daftar</value></data>
+  <data name="Settings_TaskListHint" xml:space="preserve"><value>Tab Tugas menampilkan daftar ini.</value></data>
+  <data name="Settings_Weather" xml:space="preserve"><value>Cuaca</value></data>
+  <data name="Settings_ShowWeather" xml:space="preserve"><value>Tampilkan cuaca</value></data>
+  <data name="Settings_ShowWeatherHint" xml:space="preserve"><value>Data dari Open-Meteo (open-meteo.com), tanpa akun. Hanya mengirim koordinat kota yang dibulatkan (~1 km).</value></data>
+  <data name="Settings_City" xml:space="preserve"><value>Kota</value></data>
+  <data name="Settings_NoCity" xml:space="preserve"><value>belum dipilih</value></data>
+  <data name="Settings_CitySearch" xml:space="preserve"><value>Cari kota (mis. Jakarta)</value></data>
+  <data name="Settings_Search" xml:space="preserve"><value>Cari</value></data>
+  <data name="Settings_Searching" xml:space="preserve"><value>Mencari…</value></data>
+  <data name="Settings_NoCityFound" xml:space="preserve"><value>Kota tidak ditemukan.</value></data>
+  <data name="Settings_NoOpenMeteo" xml:space="preserve"><value>Tidak dapat menjangkau Open-Meteo.</value></data>
+  <data name="Settings_LocateHint" xml:space="preserve"><value>Atau gunakan lokasi Windows sekali: posisi langsung dibulatkan ke ~1 km dan tidak pernah disimpan secara presisi.</value></data>
+  <data name="Settings_UseMyLocation" xml:space="preserve"><value>Gunakan lokasi saya</value></data>
+  <data name="Settings_Locating" xml:space="preserve"><value>Meminta lokasi dari Windows…</value></data>
+  <data name="Settings_MyLocation" xml:space="preserve"><value>Lokasi saya ({0}, {1})</value></data>
+  <data name="Settings_LocationOff" xml:space="preserve"><value>Lokasi dimatikan untuk aplikasi desktop.</value></data>
+  <data name="Settings_LocationFailed" xml:space="preserve"><value>Gagal mendapatkan lokasi saat ini. Coba lagi atau cari kota.</value></data>
+  <data name="Settings_OpenWindowsSettings" xml:space="preserve"><value>Buka pengaturan Windows</value></data>
+  <data name="Settings_RainAlerts" xml:space="preserve"><value>Beri tahu saat akan hujan</value></data>
+  <data name="Settings_RainAlertsHint" xml:space="preserve"><value>Saat peluang hujan melebihi 60% dalam 2 jam ke depan.</value></data>
+  <data name="Settings_Notices" xml:space="preserve"><value>Notifikasi notch</value></data>
+  <data name="Activity_Working" xml:space="preserve"><value>bekerja</value></data>
+  <data name="Activity_Permission" xml:space="preserve"><value>butuh izin Anda</value></data>
+  <data name="Activity_Waiting" xml:space="preserve"><value>menunggu Anda</value></data>
+  <data name="Activity_GoToWindow" xml:space="preserve"><value>Klik untuk membuka jendelanya</value></data>
+  <data name="Activity_WindowGone" xml:space="preserve"><value>Jendelanya sudah ditutup</value></data>
+  <data name="Activity_GoTo" xml:space="preserve"><value>Buka jendelanya</value></data>
+  <data name="Activity_Dismiss" xml:space="preserve"><value>Tutup</value></data>
+  <data name="Activity_More" xml:space="preserve"><value>+{0} lainnya</value></data>
+  <data name="Activity_Done" xml:space="preserve"><value>selesai</value></data>
+  <data name="Activity_Failed" xml:space="preserve"><value>gagal</value></data>
+  <data name="Settings_Activities" xml:space="preserve"><value>Aktivitas</value></data>
+  <data name="Settings_ActivitiesEnabled" xml:space="preserve"><value>Izinkan program di PC ini menampilkan aktivitas</value></data>
+  <data name="Settings_ActivitiesHint" xml:space="preserve"><value>Skrip, build, dan agen AI dapat menampilkan progres di samping notch dengan mochi-cli. Hanya program yang berjalan sebagai Anda di PC ini; tidak ada yang dikirim ke jaringan.</value></data>
+  <data name="Settings_Agents" xml:space="preserve"><value>Agen AI</value></data>
+  <data name="Agents_Note" xml:space="preserve"><value>Menampilkan di notch saat agen bekerja, menunggu Anda, dan selesai. Mochi menambahkan hook ke pengaturan agen, menyimpan salinan file (.mochi-backup), dan saat dimatikan hanya menghapus bagian yang ditambahkannya.</value></data>
+  <data name="Agents_NotFound" xml:space="preserve"><value>Tidak ditemukan di PC ini</value></data>
+  <data name="Agents_Off" xml:space="preserve"><value>Mati</value></data>
+  <data name="Agents_On" xml:space="preserve"><value>Aktif untuk sesi baru</value></data>
+  <data name="Agents_OnCodex" xml:space="preserve"><value>Aktif. Di Codex, tinjau dan percayai hook dengan /hooks.</value></data>
+  <data name="Agents_ByPlugin" xml:space="preserve"><value>Aktif melalui plugin Mochi untuk Claude Code</value></data>
+  <data name="Agents_CursorNoWaiting" xml:space="preserve"><value>Cursor tidak memiliki event "menunggu persetujuan Anda": hanya menampilkan bekerja dan selesai.</value></data>
+  <data name="Agents_Wsl" xml:space="preserve"><value>Claude Code di WSL</value></data>
+  <data name="Agents_WslHint" xml:space="preserve"><value>Pilih distro tempat Claude Code ditampilkan di notch.</value></data>
+  <data name="Agents_WslChoose" xml:space="preserve"><value>Pilih…</value></data>
+  <data name="Agents_WslLooking" xml:space="preserve"><value>Memeriksa distro WSL…</value></data>
+  <data name="Agents_WslWorking" xml:space="preserve"><value>Menyiapkan {0}…</value></data>
+  <data name="Agents_WslOn" xml:space="preserve"><value>Aktif di: {0}</value></data>
+  <data name="Agents_WslByPlugin" xml:space="preserve"><value>{0} (plugin)</value></data>
+  <data name="Agents_WslNoClaude" xml:space="preserve"><value>{0}: tidak ada Claude Code</value></data>
+  <data name="Agents_WslNoAccess" xml:space="preserve"><value>{0}: tidak dapat menjangkau Windows</value></data>
+  <data name="Agents_WslFailed" xml:space="preserve"><value>Gagal menyiapkan {0}</value></data>
+  <data name="Agents_WslNone" xml:space="preserve"><value>Tidak ada distro WSL dengan Claude Code</value></data>
+  <data name="Agents_Path" xml:space="preserve"><value>mochi-cli di PATH</value></data>
+  <data name="Agents_PathHint" xml:space="preserve"><value>Agar skrip dan Codex dapat memanggil mochi-cli langsung. Terminal yang sudah terbuka tidak melihat perubahan ini.</value></data>
+  <data name="Agents_NoCli" xml:space="preserve"><value>mochi-cli.exe tidak ada di sebelah Mochi (build pengembangan?).</value></data>
+  <data name="Agents_Unreadable" xml:space="preserve"><value>Gagal membaca {0}. Perbaiki file, atau pasang hook secara manual (mochi-cli hook setup).</value></data>
+  <data name="Agents_NotAnObject" xml:space="preserve"><value>{0} bukan objek JSON, jadi Mochi tidak mengubahnya.</value></data>
+  <data name="Settings_Sounds" xml:space="preserve"><value>Bunyi saat pengingat</value></data>
+  <data name="Settings_QuietDuringCalls" xml:space="preserve"><value>Tanpa bunyi saat panggilan</value></data>
+  <data name="Settings_QuietDuringCallsHint" xml:space="preserve"><value>Selama mikrofon sedang digunakan.</value></data>
+  <data name="Settings_HudVolume" xml:space="preserve"><value>Volume</value></data>
+  <data name="Settings_HudBrightness" xml:space="preserve"><value>Kecerahan</value></data>
+  <data name="Settings_HudPower" xml:space="preserve"><value>Pengisi daya dan baterai lemah</value></data>
+  <data name="Settings_HudAudioDevice" xml:space="preserve"><value>Perubahan output audio (headphone, speaker)</value></data>
+  <data name="Settings_HudCapsLock" xml:space="preserve"><value>Caps Lock</value></data>
+  <data name="Settings_HudKeyboardLayout" xml:space="preserve"><value>Bahasa papan ketik</value></data>
+  <data name="Settings_HudNetwork" xml:space="preserve"><value>Koneksi jaringan</value></data>
+  <data name="Settings_HudPrivacy" xml:space="preserve"><value>Kamera dan mikrofon aktif</value></data>
+  <data name="Settings_Focus" xml:space="preserve"><value>Fokus (Pomodoro)</value></data>
+  <data name="Settings_FocusLength" xml:space="preserve"><value>Fokus</value></data>
+  <data name="Settings_ShortBreak" xml:space="preserve"><value>Istirahat singkat</value></data>
+  <data name="Settings_LongBreak" xml:space="preserve"><value>Istirahat panjang</value></data>
+  <data name="Settings_SessionsPerCycle" xml:space="preserve"><value>Sesi sebelum istirahat panjang</value></data>
+  <data name="Settings_FocusGoal" xml:space="preserve"><value>Target fokus harian</value></data>
+  <data name="Settings_PauseWhenAway" xml:space="preserve"><value>Jeda saat Anda menjauh</value></data>
+  <data name="Settings_PauseWhenAwayHint" xml:space="preserve"><value>Setelah 5 menit diam, mengembalikan waktu yang tidak terpantau.</value></data>
+  <data name="Settings_Water" xml:space="preserve"><value>Air</value></data>
+  <data name="Settings_WaterGoal" xml:space="preserve"><value>Target harian</value></data>
+  <data name="Settings_CupSize" xml:space="preserve"><value>Ukuran gelas</value></data>
+  <data name="Settings_WaterReminders" xml:space="preserve"><value>Pengingat</value></data>
+  <data name="Settings_WaterEvery" xml:space="preserve"><value>Ingatkan setiap</value></data>
+  <data name="Settings_Companion" xml:space="preserve"><value>Tampilkan Mochi saat PC diam</value></data>
+  <data name="Settings_CompanionHint" xml:space="preserve"><value>Hanya memakai waktu input mouse/keyboard terakhir, tidak pernah isinya.</value></data>
+  <data name="Settings_CompanionAfter" xml:space="preserve"><value>Muncul setelah</value></data>
+  <data name="Settings_CompanionSleep" xml:space="preserve"><value>Tidur setelah</value></data>
+  <data name="Settings_AwaySummary" xml:space="preserve"><value>Ringkasan saat Anda kembali ("saat Anda pergi")</value></data>
+  <data name="Settings_DataLocal" xml:space="preserve"><value>Data Anda tetap tersimpan di PC ini.</value></data>
+  <data name="Settings_OpenDataFolder" xml:space="preserve"><value>Buka folder data</value></data>
+  <data name="Settings_LogLocal" xml:space="preserve"><value>Ada masalah? Log juga tersimpan di sini.</value></data>
+  <data name="Settings_OpenLog" xml:space="preserve"><value>Buka log</value></data>
+  <data name="Settings_CopyDiagnostics" xml:space="preserve"><value>Salin diagnostik</value></data>
+  <data name="Settings_Copied" xml:space="preserve"><value>Disalin</value></data>
+  <data name="Google_Account" xml:space="preserve"><value>Akun Google</value></data>
+  <data name="Google_NotConfigured" xml:space="preserve"><value>Letakkan google-client.json (klien OAuth Desktop Google) di folder data Mochi.</value></data>
+  <data name="Google_ContinueInBrowser" xml:space="preserve"><value>Lanjutkan di peramban yang terbuka…</value></data>
+  <data name="Google_ConnectedAs" xml:space="preserve"><value>Terhubung sebagai {0}</value></data>
+  <data name="Google_ConnectedHint" xml:space="preserve"><value>Akses dilindungi oleh Windows di PC ini. Memutuskan akan mencabut akses di Google.</value></data>
+  <data name="Google_Disconnect" xml:space="preserve"><value>Putuskan</value></data>
+  <data name="Google_ConnectAgain" xml:space="preserve"><value>Hubungkan lagi.</value></data>
+  <data name="Google_Reconnect" xml:space="preserve"><value>Hubungkan ulang</value></data>
+  <data name="Google_Intro" xml:space="preserve"><value>Google Kalender dan Tugas di notch. Di layar Google Anda memilih izin yang diberikan; akses dilindungi oleh Windows di PC ini.</value></data>
+  <data name="Google_Connect" xml:space="preserve"><value>Hubungkan dengan Google</value></data>
+  <data name="Google_SomeUnchecked" xml:space="preserve"><value>Beberapa izin tidak dicentang; Anda dapat mengizinkannya nanti di sini.</value></data>
+  <data name="Calendar_Intro" xml:space="preserve"><value>Menampilkan acara mendatang dan mengingatkan sebelum dimulai. Hanya baca.</value></data>
+  <data name="Calendar_Connected" xml:space="preserve"><value>Hanya baca: kalender serta acara hari ini dan besok hanya disimpan di memori.</value></data>
+  <data name="Calendar_Primary" xml:space="preserve"><value>Kalender utama</value></data>
+  <data name="Tasks_Intro" xml:space="preserve"><value>Menyinkronkan tab Tugas dengan Google Tasks dua arah; tugas terbuka dari sini masuk ke daftar. Waktu pengingat hanya tersimpan di Mochi.</value></data>
+  <data name="Tasks_Connected" xml:space="preserve"><value>Menyelesaikan, menambah, dan menghapus di sini juga berlaku di Google. Mematikannya menghapus tugas Google dari tab.</value></data>
+  <data name="Format_LongDate" xml:space="preserve"><value>dddd, d MMMM</value></data>
+  <data name="Format_WeekdayDate" xml:space="preserve"><value>dddd, d/M</value></data>
+  <data name="Format_DayMonth" xml:space="preserve"><value>dd/MM</value></data>
+  <data name="Format_DayMonthTime" xml:space="preserve"><value>dd/MM HH:mm</value></data>
+  <data name="Due_Today" xml:space="preserve"><value>hari ini</value></data>
+  <data name="Due_Tomorrow" xml:space="preserve"><value>besok</value></data>
+  <data name="Due_TomorrowAt" xml:space="preserve"><value>besok {0:HH:mm}</value></data>
+  <data name="Tab_Media" xml:space="preserve"><value>Media</value></data>
+  <data name="Tab_Agenda" xml:space="preserve"><value>Kalender</value></data>
+  <data name="Tab_Focus" xml:space="preserve"><value>Fokus</value></data>
+  <data name="Tab_Water" xml:space="preserve"><value>Air</value></data>
+  <data name="Tab_Pray" xml:space="preserve"><value>Sholat</value></data>
+  <data name="Tab_Tasks" xml:space="preserve"><value>Tugas</value></data>
+  <data name="Tab_Shelf" xml:space="preserve"><value>Rak</value></data>
+  <data name="Tab_Notifications" xml:space="preserve"><value>Notif</value></data>
+  <data name="Tab_Clipboard" xml:space="preserve"><value>Klip</value></data>
+  <data name="Tab_Weather" xml:space="preserve"><value>Cuaca</value></data>
+  <data name="Tab_Settings" xml:space="preserve"><value>Setelan</value></data>
+  <data name="Media_Previous" xml:space="preserve"><value>Sebelumnya</value></data>
+  <data name="Media_Next" xml:space="preserve"><value>Berikutnya</value></data>
+  <data name="Media_SwitchTo" xml:space="preserve"><value>Pindah ke {0}</value></data>
+  <data name="Media_SwitchPlayer" xml:space="preserve"><value>Pindah ke pemutar berikutnya</value></data>
+  <data name="Media_RemovePlayer" xml:space="preserve"><value>Keluarkan {0} dari notch sampai diputar lagi</value></data>
+  <data name="Media_RemoveThisPlayer" xml:space="preserve"><value>Keluarkan pemutar ini dari notch sampai diputar lagi</value></data>
+  <data name="Media_Play" xml:space="preserve"><value>Putar</value></data>
+  <data name="Media_Pause" xml:space="preserve"><value>Jeda</value></data>
+  <data name="Media_NothingPlaying" xml:space="preserve"><value>Tidak ada yang diputar</value></data>
+  <data name="Weather_RainAround" xml:space="preserve"><value>hujan sekitar {0:HH}:00</value></data>
+  <data name="Weather_RainNow" xml:space="preserve"><value>Hujan bisa turun kapan saja</value></data>
+  <data name="Weather_RainExpected" xml:space="preserve"><value>Diperkirakan hujan sekitar {0:HH}:00</value></data>
+  <data name="Weather_Clear" xml:space="preserve"><value>Cerah</value></data>
+  <data name="Weather_MostlyClear" xml:space="preserve"><value>Cerah berawan</value></data>
+  <data name="Weather_PartlyCloudy" xml:space="preserve"><value>Berawan sebagian</value></data>
+  <data name="Weather_Cloudy" xml:space="preserve"><value>Berawan</value></data>
+  <data name="Weather_Fog" xml:space="preserve"><value>Berkabut</value></data>
+  <data name="Weather_Drizzle" xml:space="preserve"><value>Gerimis</value></data>
+  <data name="Weather_FreezingDrizzle" xml:space="preserve"><value>Gerimis beku</value></data>
+  <data name="Weather_LightRain" xml:space="preserve"><value>Hujan ringan</value></data>
+  <data name="Weather_Rain" xml:space="preserve"><value>Hujan</value></data>
+  <data name="Weather_HeavyRain" xml:space="preserve"><value>Hujan lebat</value></data>
+  <data name="Weather_FreezingRain" xml:space="preserve"><value>Hujan beku</value></data>
+  <data name="Weather_Snow" xml:space="preserve"><value>Salju</value></data>
+  <data name="Weather_RainShowers" xml:space="preserve"><value>Hujan rintik</value></data>
+  <data name="Weather_HeavyShowers" xml:space="preserve"><value>Hujan deras</value></data>
+  <data name="Weather_SnowShowers" xml:space="preserve"><value>Hujan salju</value></data>
+  <data name="Weather_Thunderstorm" xml:space="preserve"><value>Badai petir</value></data>
+  <data name="Weather_ThunderstormHail" xml:space="preserve"><value>Badai petir &amp; es</value></data>
+  <data name="Agenda_Join" xml:space="preserve"><value>Gabung</value></data>
+  <data name="Agenda_NotConfigured" xml:space="preserve"><value>Build Mochi ini dikompilasi tanpa akses Google.</value></data>
+  <data name="Agenda_Connecting" xml:space="preserve"><value>Lanjutkan di peramban untuk menghubungkan kalender…</value></data>
+  <data name="Agenda_ConnectAgain" xml:space="preserve"><value>Hubungkan ulang akun Google Anda.</value></data>
+  <data name="Agenda_SignedOut" xml:space="preserve"><value>Lihat acara Google Kalender mendatang di sini.</value></data>
+  <data name="Agenda_Connect" xml:space="preserve"><value>Hubungkan kalender</value></data>
+  <data name="Agenda_NothingLeft" xml:space="preserve"><value>Tidak ada acara lagi hari ini atau besok</value></data>
+  <data name="Agenda_Free" xml:space="preserve"><value>Kalender kosong hari ini dan besok</value></data>
+  <data name="Agenda_Tomorrow" xml:space="preserve"><value>Besok</value></data>
+  <data name="Agenda_AllDay" xml:space="preserve"><value>Seharian</value></data>
+  <data name="Agenda_NowUntil" xml:space="preserve"><value>sekarang · hingga {0:HH:mm}</value></data>
+  <data name="Agenda_Ended" xml:space="preserve"><value>selesai {0:HH:mm}</value></data>
+  <data name="Agenda_SoonUntil" xml:space="preserve"><value>{0} · hingga {1:HH:mm}</value></data>
+  <data name="Agenda_Until" xml:space="preserve"><value>hingga {0:HH:mm}</value></data>
+  <data name="Calendar_Now" xml:space="preserve"><value>sekarang</value></data>
+  <data name="Calendar_InMinutes" xml:space="preserve"><value>dalam {0} mnt</value></data>
+  <data name="Calendar_InHours" xml:space="preserve"><value>dalam {0}j{1:00}</value></data>
+  <data name="Calendar_Untitled" xml:space="preserve"><value>(Tanpa judul)</value></data>
+  <data name="Focus_Focus" xml:space="preserve"><value>Fokus</value></data>
+  <data name="Focus_ShortBreak" xml:space="preserve"><value>Istirahat singkat</value></data>
+  <data name="Focus_LongBreak" xml:space="preserve"><value>Istirahat panjang</value></data>
+  <data name="Focus_Session" xml:space="preserve"><value>Sesi {0} dari {1}</value></data>
+  <data name="Focus_Ready" xml:space="preserve"><value>Sesi {0} dari {1} · siap mulai</value></data>
+  <data name="Focus_Paused" xml:space="preserve"><value>Dijeda · sesi {0} dari {1}</value></data>
+  <data name="Focus_BreakOnHold" xml:space="preserve"><value>Istirahat ditahan</value></data>
+  <data name="Focus_BreakTip" xml:space="preserve"><value>Berdiri, regangkan badan, minum air</value></data>
+  <data name="Focus_Start" xml:space="preserve"><value>Mulai</value></data>
+  <data name="Focus_Pause" xml:space="preserve"><value>Jeda</value></data>
+  <data name="Focus_Resume" xml:space="preserve"><value>Lanjut</value></data>
+  <data name="Focus_SkipBreak" xml:space="preserve"><value>Lewati</value></data>
+  <data name="Focus_Stop" xml:space="preserve"><value>Henti</value></data>
+  <data name="Focus_PausedAsleep" xml:space="preserve"><value>Fokus dijeda saat PC tidur</value></data>
+  <data name="Focus_MinutesLeft" xml:space="preserve"><value>{0} mnt tersisa</value></data>
+  <data name="Focus_BreakTime" xml:space="preserve"><value>Waktunya istirahat</value></data>
+  <data name="Focus_BackToFocus" xml:space="preserve"><value>Kembali fokus</value></data>
+  <data name="Focus_BreakAt" xml:space="preserve"><value> · istirahat {0}</value></data>
+  <data name="Focus_EventDuring" xml:space="preserve"><value>Sebelum selesai: {1} · {0}</value></data>
+  <data name="Focus_EventNoFit" xml:space="preserve"><value>Tidak cukup waktu sebelum {1} · {0}</value></data>
+  <data name="Focus_EventFitsOne" xml:space="preserve"><value>Cukup 1 sesi sebelum {1} · {0}</value></data>
+  <data name="Focus_EventFitsMany" xml:space="preserve"><value>Cukup {2} sesi sebelum {1} · {0}</value></data>
+  <data name="Focus_Today" xml:space="preserve"><value>Hari ini</value></data>
+  <data name="Focus_OfGoal" xml:space="preserve"><value>dari {0}</value></data>
+  <data name="Focus_GoalMet" xml:space="preserve"><value>Target tercapai</value></data>
+  <data name="Focus_PickTaskShort" xml:space="preserve"><value>Pilih tugas</value></data>
+  <data name="Focus_PickTask" xml:space="preserve"><value>Fokus pada</value></data>
+  <data name="Focus_ClosePicker" xml:space="preserve"><value>Tutup</value></data>
+  <data name="Focus_NoTask" xml:space="preserve"><value>Tanpa tugas</value></data>
+  <data name="Focus_NoOpenTasks" xml:space="preserve"><value>Belum ada tugas terbuka. Tambahkan di tab Tugas.</value></data>
+  <data name="Focus_MarkDone" xml:space="preserve"><value>Tandai selesai</value></data>
+  <data name="Focus_Finished" xml:space="preserve"><value>Selesai?</value></data>
+  <data name="Shelf_DropHere" xml:space="preserve"><value>Seret file ke sini</value></data>
+  <data name="Shelf_Unavailable" xml:space="preserve"><value>Tidak tersedia saat ini: drive atau server tidak merespons.</value></data>
+  <data name="Shelf_Remove" xml:space="preserve"><value>Hapus dari rak</value></data>
+  <data name="Shelf_DropToKeep" xml:space="preserve"><value>Lepas untuk simpan</value></data>
+  <data name="Shelf_Clear" xml:space="preserve"><value>Bersihkan</value></data>
+  <data name="Shelf_CountOne" xml:space="preserve"><value>1 item · seret untuk pakai</value></data>
+  <data name="Shelf_Count" xml:space="preserve"><value>{0} item · seret untuk pakai</value></data>
+  <data name="Tasks_Late" xml:space="preserve"><value>{0} · terlambat {1}</value></data>
+  <data name="Tasks_Empty" xml:space="preserve"><value>Belum ada tugas</value></data>
+  <data name="Tasks_Remove" xml:space="preserve"><value>Hapus</value></data>
+  <data name="Tasks_NewPlaceholder" xml:space="preserve"><value>Tugas baru (mis. Rapat pukul 15)</value></data>
+  <data name="Tasks_Add" xml:space="preserve"><value>Tambah</value></data>
+  <data name="Tasks_Unnamed" xml:space="preserve"><value>Tanpa judul</value></data>
+  <data name="Water_Undo" xml:space="preserve"><value>Urungkan</value></data>
+  <data name="Water_GoalReached" xml:space="preserve"><value>Target air tercapai</value></data>
+  <data name="Water_Reminder" xml:space="preserve"><value>Waktunya minum air</value></data>
+  <data name="Away_FocusPaused" xml:space="preserve"><value>Fokus dijeda saat Anda pergi</value></data>
+  <data name="Away_Title" xml:space="preserve"><value>Saat Anda pergi · {0}</value></data>
+  <data name="Away_TitleCount" xml:space="preserve"><value>Saat Anda pergi · {0} · {1} info</value></data>
+  <data name="Away_Battery" xml:space="preserve"><value>Baterai {0}% → {1}%</value></data>
+  <data name="Demo_Meeting" xml:space="preserve"><value>Rapat tim</value></data>
+  <data name="Hud_DataUnreadable" xml:space="preserve"><value>Data tidak terbaca; dimulai ulang</value></data>
+  <data name="Hud_CameraAndMicrophone" xml:space="preserve"><value>Kamera dan mikrofon aktif</value></data>
+  <data name="Hud_Camera" xml:space="preserve"><value>Kamera aktif</value></data>
+  <data name="Hud_Microphone" xml:space="preserve"><value>Mikrofon aktif</value></data>
+  <data name="Hud_MicrophoneMuted" xml:space="preserve"><value>Mikrofon dibisukan</value></data>
+  <data name="Hud_MicrophoneOn" xml:space="preserve"><value>Mikrofon aktif</value></data>
+  <data name="Hud_AudioOutput" xml:space="preserve"><value>Output audio</value></data>
+  <data name="Hud_Muted" xml:space="preserve"><value>Dibisukan</value></data>
+  <data name="Hud_Volume" xml:space="preserve"><value>Volume</value></data>
+  <data name="Hud_Brightness" xml:space="preserve"><value>Kecerahan</value></data>
+  <data name="Hud_Charging" xml:space="preserve"><value>Mengisi daya</value></data>
+  <data name="Hud_OnBattery" xml:space="preserve"><value>Pakai baterai</value></data>
+  <data name="Hud_BatteryVeryLow" xml:space="preserve"><value>Baterai sangat lemah</value></data>
+  <data name="Hud_BatteryLow" xml:space="preserve"><value>Baterai lemah</value></data>
+  <data name="Hud_Connected" xml:space="preserve"><value>Terhubung</value></data>
+  <data name="Hud_NoInternet" xml:space="preserve"><value>Tidak ada internet</value></data>
+  <data name="Hud_CapsLockOn" xml:space="preserve"><value>Caps Lock aktif</value></data>
+  <data name="Hud_CapsLockOff" xml:space="preserve"><value>Caps Lock mati</value></data>
+  <data name="Hud_Keyboard" xml:space="preserve"><value>Papan ketik</value></data>
+  <data name="Hud_NewVersion" xml:space="preserve"><value>Versi baru Mochi</value></data>
+  <data name="Google_NoConnection" xml:space="preserve"><value>Tidak ada koneksi ke Google.</value></data>
+  <data name="Google_BrowserFailed" xml:space="preserve"><value>Gagal membuka peramban.</value></data>
+  <data name="Google_SaveFailed" xml:space="preserve"><value>Gagal menyimpan akses di PC ini.</value></data>
+  <data name="GoogleAuth_NoClient" xml:space="preserve"><value>File google-client.json tidak ada di folder data Mochi.</value></data>
+  <data name="GoogleAuth_RefusedCode" xml:space="preserve"><value>Google menolak koneksi ({0}).</value></data>
+  <data name="GoogleAuth_Refused" xml:space="preserve"><value>Google menolak koneksi.</value></data>
+  <data name="GoogleAuth_Cancelled" xml:space="preserve"><value>Koneksi dibatalkan di Google.</value></data>
+  <data name="GoogleAuth_NoRefresh" xml:space="preserve"><value>Google tidak mengembalikan akses permanen. Coba hubungkan lagi.</value></data>
+  <data name="GoogleAuth_NothingGranted" xml:space="preserve"><value>Tidak ada izin yang dicentang di Google, jadi tidak ada yang terhubung.</value></data>
+  <data name="GoogleAuth_NotConnected" xml:space="preserve"><value>Akun Google belum terhubung.</value></data>
+  <data name="GoogleAuth_Expired" xml:space="preserve"><value>Akses ke akun Google kedaluwarsa. Hubungkan lagi.</value></data>
+  <data name="GoogleAuth_RenewFailed" xml:space="preserve"><value>Gagal memperbarui akses ({0}).</value></data>
+  <data name="GoogleAuth_PageConnected" xml:space="preserve"><value>Akun Google terhubung</value></data>
+  <data name="GoogleAuth_PageConnectedText" xml:space="preserve"><value>Anda dapat menutup tab ini dan kembali ke Mochi.</value></data>
+  <data name="GoogleAuth_PageCancelled" xml:space="preserve"><value>Koneksi dibatalkan</value></data>
+  <data name="GoogleAuth_PageCancelledText" xml:space="preserve"><value>Tidak ada yang dibagikan. Anda dapat menutup tab ini.</value></data>
+  <data name="Calendar_AskPermission" xml:space="preserve"><value>Centang izin kalender agar Mochi dapat menampilkan acara Anda.</value></data>
+  <data name="Calendar_ApiDisabled" xml:space="preserve"><value>Google Calendar API belum diaktifkan di proyek Google Cloud.</value></data>
+  <data name="Calendar_NoConnection" xml:space="preserve"><value>Tidak ada koneksi ke Google Kalender.</value></data>
+  <data name="Tasks_AskPermission" xml:space="preserve"><value>Centang izin tugas agar Mochi dapat menyinkronkan.</value></data>
+  <data name="Tasks_ApiDisabled" xml:space="preserve"><value>Google Tasks API belum diaktifkan di proyek Google Cloud.</value></data>
+  <data name="Tasks_NoConnection" xml:space="preserve"><value>Tidak ada koneksi ke Google Tasks.</value></data>
+  <data name="Settings_CitySearchName" xml:space="preserve"><value>Cari kota</value></data>
+  <data name="Agenda_JoinCall" xml:space="preserve"><value>Gabung panggilan</value></data>
+  <data name="Tasks_Complete" xml:space="preserve"><value>Selesaikan</value></data>
+  <data name="Water_AddCup" xml:space="preserve"><value>Catat segelas</value></data>
+  <data name="Stepper_Decrease" xml:space="preserve"><value>Kurangi {0}</value></data>
+  <data name="Stepper_Increase" xml:space="preserve"><value>Tambah {0}</value></data>
+  <data name="Tasks_Reopen" xml:space="preserve"><value>Buka lagi</value></data>
+  <data name="Undo_Action" xml:space="preserve"><value>Urungkan</value></data>
+  <data name="Undo_TaskRemoved" xml:space="preserve"><value>Tugas dihapus</value></data>
+  <data name="Undo_ShelfCleared" xml:space="preserve"><value>Rak dibersihkan</value></data>
+  <data name="Notif_Empty" xml:space="preserve"><value>Semua sudah terbaca</value></data>
+  <data name="Notif_MarkRead" xml:space="preserve"><value>Tandai dibaca</value></data>
+  <data name="Notif_Clear" xml:space="preserve"><value>Hapus semua</value></data>
+  <data name="Notif_WinActive" xml:space="preserve"><value>Sinkronisasi aktif</value></data>
+  <data name="Notif_WinEnable" xml:space="preserve"><value>Setelan Windows</value></data>
+  <data name="Notif_Unread" xml:space="preserve"><value>{0} belum dibaca</value></data>
+  <data name="Clip_Empty" xml:space="preserve"><value>Salin sesuatu untuk melihatnya di sini</value></data>
+  <data name="Clip_Clear" xml:space="preserve"><value>Bersihkan</value></data>
+  <data name="Clip_Copied" xml:space="preserve"><value>Disalin</value></data>
+  <data name="Clip_Hint" xml:space="preserve"><value>Klik item untuk menyalin ulang</value></data>
+  <data name="Weather_Hourly" xml:space="preserve"><value>Prakiraan per jam</value></data>
+  <data name="Weather_Feels" xml:space="preserve"><value>Terasa {0}°</value></data>
+  <data name="Weather_Wind" xml:space="preserve"><value>{0} km/j</value></data>
+  <data name="Weather_Humidity" xml:space="preserve"><value>Kelembapan {0}%</value></data>
+  <data name="Weather_Dry" xml:space="preserve"><value>Cerah 12 jam ke depan</value></data>
+  <data name="Weather_RainPeak" xml:space="preserve"><value>Hujan {0}% pukul {1}</value></data>
+  <data name="Weather_Now" xml:space="preserve"><value>Sekarang</value></data>
+  <data name="Weather_SearchCity" xml:space="preserve"><value>Cari kota…</value></data>
+  <data name="Weather_Locate" xml:space="preserve"><value>Lokasi saya</value></data>
+  <data name="Weather_SetupHint" xml:space="preserve"><value>Pilih kota untuk melihat cuaca &amp; prakiraan per jam</value></data>
+  <data name="Pray_AlertOn" xml:space="preserve"><value>Aktif</value></data>
+  <data name="Pray_AlertOff" xml:space="preserve"><value>Mati</value></data>
+  <data name="Pray_Done" xml:space="preserve"><value>Lewat</value></data>
+  <data name="Pray_Next" xml:space="preserve"><value>Berikutnya</value></data>
+  <data name="Pray_TimeNow" xml:space="preserve"><value>Waktu sholat: {0}</value></data>
+  <data name="Pray_TimeSoon" xml:space="preserve"><value>{0} dalam {1} mnt</value></data>
+</root>
