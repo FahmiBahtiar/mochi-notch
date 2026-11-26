@@ -4,7 +4,6 @@ use chrono::NaiveDateTime;
 
 use mochi_winrt::mochi_activities;
 use mochi_winrt::mochi_activities::port::{ActivityOp, ActivityState};
-use mochi_winrt::monitors::Monitors;
 use mochi_winrt::native::focus_host_window;
 use mochi_winrt::paths::{Glyphs, HudKind, HudMessage};
 
@@ -42,6 +41,29 @@ pub struct BubbleItem {
     pub window: Option<(i64, i32)>,
 }
 
+fn bubble_items_equal(a: &Option<BubbleItem>, b: &Option<BubbleItem>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            x.glyph == y.glyph
+                && x.label == y.label
+                && x.progress == y.progress
+                && x.warning == y.warning
+                && x.dim == y.dim
+                && x.badge == y.badge
+                && x.activity_id == y.activity_id
+                && x.window == y.window
+                && x.detail.text == y.detail.text
+                && x.detail.value == y.detail.value
+                && x.detail.level == y.detail.level
+                && x.detail.warning == y.detail.warning
+                && x.detail.glyph == y.detail.glyph
+                && x.detail.badge == y.detail.badge
+        }
+        _ => false,
+    }
+}
+
 impl NotchApp {
     pub(crate) fn layout_activity_panel(&mut self, expanded_width: f64) {
         if self.activities.is_empty() {
@@ -49,13 +71,8 @@ impl NotchApp {
             self.panel_width = 320.0;
             return;
         }
-        let disp = Monitors::resolve(self.store.data.settings.monitor.as_deref(), self.lang);
-        let scale = Monitors::scale_at(disp.x + disp.width / 2, disp.y);
-        let room = (f64::from(disp.width) / scale) / 2.0
-            - expanded_width / 2.0
-            - BUBBLE_GAP
-            - 2.0 * EAR
-            - 8.0;
+        let room =
+            self.display_dip_width / 2.0 - expanded_width / 2.0 - BUBBLE_GAP - 2.0 * EAR - 8.0;
         self.panel_below = room < 220.0;
         self.panel_width = if self.panel_below {
             320.0
@@ -95,7 +112,7 @@ impl NotchApp {
         let now = chrono::Local::now().naive_local();
         let item = self.pick_bubble(now);
         let appearing = item.is_some() != self.bubble_item.is_some();
-        let changed = appearing || item.is_some();
+        let changed = !bubble_items_equal(&self.bubble_item, &item);
         self.bubble_item = item;
         if appearing {
             self.update_targets(None);

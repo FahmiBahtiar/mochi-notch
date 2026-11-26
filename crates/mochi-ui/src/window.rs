@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use chrono::{Local, Timelike};
@@ -36,11 +36,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, DestroyMenu, DestroyWindow, DispatchMessageW, FindWindowW, GWL_EXSTYLE,
     GWLP_USERDATA, GetForegroundWindow, GetMessageW, GetWindowLongPtrW, HICON, HTCLIENT,
     HTTRANSPARENT, IDC_ARROW, IsWindowVisible, KillTimer, LR_DEFAULTCOLOR, LoadCursorW,
-    MA_NOACTIVATE, MF_CHECKED, MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MSG, PM_REMOVE, PeekMessageW,
-    PostMessageW, PostQuitMessage, RegisterClassExW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOREDRAW, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
-    SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
-    TPM_TOPALIGN, TrackPopupMenu, TranslateMessage, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CHAR,
+    MA_NOACTIVATE, MF_CHECKED, MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MSG, MWMO_INPUTAVAILABLE,
+    MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage,
+    QS_ALLINPUT, RegisterClassExW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOREDRAW, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_TOPALIGN,
+    TrackPopupMenu, TranslateMessage, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CHAR,
     WM_CLIPBOARDUPDATE, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DISPLAYCHANGE, WM_DROPFILES,
     WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE,
     WM_MOUSEWHEEL, WM_NCCALCSIZE, WM_NCCREATE, WM_NCHITTEST, WM_RBUTTONUP, WM_TIMER,
@@ -60,8 +61,8 @@ use mochi_winrt::media::MediaService;
 use mochi_winrt::monitors::{DisplayInfo, Monitors};
 use mochi_winrt::native::{
     Autostart, VsCodeChatAction, focus_host_window, get_cursor_pos, keep_topmost,
-    send_terminal_interrupt, set_capture_exclusion, to_wide, trigger_vscode_chat_action,
-    trim_working_set,
+    logical_cpu_count, process_cpu_time_us, send_terminal_interrupt, set_capture_exclusion,
+    to_wide, trigger_vscode_chat_action, trim_working_set,
 };
 use mochi_winrt::notifications::{NotificationEvent, start_notification_watcher};
 use mochi_winrt::paths::{Glyphs, HudKind, HudMessage};
@@ -84,7 +85,9 @@ use mochi_winrt::weather::{
 use crate::d2d::{D2dFactories, D2dSurface};
 use crate::render::{HitMap, render_notch};
 use crate::settings_win::open_settings_window;
-use crate::state::{AwayItem, AwayReport, EXPANDED_WIDE, HoverTarget, NotchApp, NotchPage};
+use crate::state::{
+    AwayItem, AwayReport, EXPANDED_WIDE, FramePacing, HoverTarget, NotchApp, NotchPage,
+};
 use crate::theme::MOCHI_ICO;
 
 const WM_TRAY: u32 = WM_APP + 1;
@@ -143,6 +146,43 @@ enum BgEvent {
     SystemNotification(NotificationEvent),
 }
 
+struct PerfBench {
+    name: String,
+    started_at: Instant,
+    warmup_done: bool,
+    sample_start_wall: Instant,
+    sample_start_cpu_us: u64,
+    renders: u64,
+    timer_main: u64,
+    timer_hover: u64,
+    wakes: u64,
+    loop_iters: u64,
+    finished: bool,
+}
+
+impl PerfBench {
+    fn new(name: Option<&str>) -> Option<Self> {
+        let name = name?;
+        if matches!(name, "transitions" | "showcase") {
+            return None;
+        }
+        let now = Instant::now();
+        Some(Self {
+            name: name.to_string(),
+            started_at: now,
+            warmup_done: false,
+            sample_start_wall: now,
+            sample_start_cpu_us: 0,
+            renders: 0,
+            timer_main: 0,
+            timer_hover: 0,
+            wakes: 0,
+            loop_iters: 0,
+            finished: false,
+        })
+    }
+}
+
 struct WindowHost {
     hwnd: HWND,
     app: Rc<RefCell<NotchApp>>,
@@ -164,6 +204,11 @@ struct WindowHost {
     click_through: bool,
     sync_pending: bool,
     hover_watch_ms: u32,
+    main_timer_ms: u32,
+    last_hover_cursor: Option<(i32, i32)>,
+    last_hover_btn_down: bool,
+    last_hover_near: bool,
+    last_monitor_setting: Option<String>,
     rendering: bool,
     was_visible: bool,
     cached_disp: DisplayInfo,
@@ -172,6 +217,7 @@ struct WindowHost {
     last_pos: (i32, i32, i32, i32),
     last_lyrics_req: Option<String>,
     bench_done_at: Option<Instant>,
+    perf_bench: Option<PerfBench>,
     startup_trimmed: bool,
     was_animating: bool,
     last_trim_at: Instant,
@@ -215,6 +261,8 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
 
     let disp = Monitors::resolve(app.store.data.settings.monitor.as_deref(), app.lang);
     let scale = Monitors::scale_at(disp.x + disp.width / 2, disp.y);
+    app.display_dip_width = f64::from(disp.width) / scale.max(0.5);
+    let initial_monitor_setting = app.store.data.settings.monitor.clone();
     let pw = (app.window_w * scale).round() as i32;
     let ph = (app.window_h * scale).round() as i32;
     let Ok(surface) = D2dSurface::new(&factories, pw, ph, scale) else {
@@ -289,6 +337,11 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
         click_through: false,
         sync_pending: false,
         hover_watch_ms: 0,
+        main_timer_ms: 250,
+        last_hover_cursor: None,
+        last_hover_btn_down: false,
+        last_hover_near: false,
+        last_monitor_setting: initial_monitor_setting,
         rendering: false,
         was_visible: true,
         cached_disp: disp,
@@ -297,6 +350,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
         last_pos: (x, y, pw, ph),
         last_lyrics_req: None,
         bench_done_at: None,
+        perf_bench: PerfBench::new(opts.bench.as_deref()),
         startup_trimmed: false,
         was_animating: false,
         last_trim_at: Instant::now(),
@@ -365,7 +419,7 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
 
     update_hotkeys(&mut host);
     apply_capture_exclusion(&mut host);
-    if opts.bench.as_deref() != Some("transitions") {
+    if opts.bench.is_none() {
         add_tray_icon(&mut host);
     }
 
@@ -413,18 +467,99 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
         sync_click_through(&mut *host_ptr);
     }
 
-    // Main message + 100Hz DwmFlush vsync loop
+    // Main message + adaptive vsync/ambient loop
     let mut msg = MSG::default();
     let mut last_frame = Instant::now();
     let mut fast_dwm_count: u32 = 0;
     loop {
         // SAFETY: `host_ptr` remains valid until WM_QUIT after WM_DESTROY.
-        let continuous = unsafe { (*host_ptr).app.borrow().needs_continuous_frames() };
+        let (pacing, recording_bench) = unsafe {
+            let app = (*host_ptr).app.borrow();
+            (app.frame_pacing(), app.frame_timings.recording)
+        };
 
-        if continuous {
-            // SAFETY: Draining all queued Win32 messages without blocking.
-            while unsafe { PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
-                if msg.message == windows::Win32::UI::WindowsAndMessaging::WM_QUIT {
+        match pacing {
+            FramePacing::Transition => {
+                // SAFETY: Draining all queued Win32 messages without blocking.
+                while unsafe { PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+                    if msg.message == windows::Win32::UI::WindowsAndMessaging::WM_QUIT {
+                        // SAFETY: Cleaning up host pointer and OLE on exit.
+                        unsafe {
+                            drop(Box::from_raw(host_ptr));
+                            if ole_ok {
+                                OleUninitialize();
+                            }
+                        }
+                        return msg.wParam.0 as i32;
+                    }
+                    // SAFETY: Standard Win32 message dispatch.
+                    unsafe {
+                        let _ = TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                }
+                // Lock cleanly to DWM vblank, capping non-bench transitions at ~60 FPS on high-Hz monitors.
+                let dwm_start = Instant::now();
+                // SAFETY: DwmFlush waits for next DWM composition vblank.
+                let dwm_ok = unsafe { DwmFlush() }.is_ok();
+                if !dwm_ok {
+                    fast_dwm_count = 0;
+                    std::thread::sleep(Duration::from_millis(16));
+                } else if dwm_start.elapsed() < Duration::from_millis(2) {
+                    fast_dwm_count = fast_dwm_count.saturating_add(1);
+                    if fast_dwm_count >= 3 {
+                        std::thread::sleep(Duration::from_millis(16));
+                    }
+                } else {
+                    fast_dwm_count = 0;
+                }
+                if !recording_bench && last_frame.elapsed() < Duration::from_millis(13) {
+                    continue;
+                }
+            }
+            FramePacing::Ambient => {
+                fast_dwm_count = 0;
+                // SAFETY: Draining all queued Win32 messages without blocking.
+                while unsafe { PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
+                    if msg.message == windows::Win32::UI::WindowsAndMessaging::WM_QUIT {
+                        // SAFETY: Cleaning up host pointer and OLE on exit.
+                        unsafe {
+                            drop(Box::from_raw(host_ptr));
+                            if ole_ok {
+                                OleUninitialize();
+                            }
+                        }
+                        return msg.wParam.0 as i32;
+                    }
+                    // SAFETY: Standard Win32 message dispatch.
+                    unsafe {
+                        let _ = TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                }
+                const AMBIENT_INTERVAL: Duration = Duration::from_millis(42);
+                let elapsed = last_frame.elapsed();
+                if elapsed < AMBIENT_INTERVAL {
+                    let wait_ms = (AMBIENT_INTERVAL - elapsed).as_millis().clamp(1, 42) as u32;
+                    // SAFETY: Kernel wait for either Win32 input/messages or the 24 FPS ambient frame deadline.
+                    unsafe {
+                        let _ = MsgWaitForMultipleObjectsEx(
+                            None,
+                            wait_ms,
+                            QS_ALLINPUT,
+                            MWMO_INPUTAVAILABLE,
+                        );
+                    }
+                    if last_frame.elapsed() < AMBIENT_INTERVAL {
+                        continue;
+                    }
+                }
+            }
+            FramePacing::Idle => {
+                fast_dwm_count = 0;
+                // SAFETY: Blocking wait when idle (0% CPU).
+                let ret = unsafe { GetMessageW(&raw mut msg, None, 0, 0) };
+                if ret.0 <= 0 {
                     // SAFETY: Cleaning up host pointer and OLE on exit.
                     unsafe {
                         drop(Box::from_raw(host_ptr));
@@ -439,108 +574,143 @@ pub fn run_desktop(opts: LaunchOptions) -> i32 {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
-            }
-            // Lock cleanly to DWM vblank (10.0 ms on 100 Hz monitor), guarding against non-blocking spins
-            let dwm_start = Instant::now();
-            // SAFETY: DwmFlush waits for next DWM composition vblank.
-            let dwm_ok = unsafe { DwmFlush() }.is_ok();
-            if !dwm_ok {
-                fast_dwm_count = 0;
-                std::thread::sleep(Duration::from_millis(10));
-            } else if dwm_start.elapsed() < Duration::from_millis(2) {
-                fast_dwm_count = fast_dwm_count.saturating_add(1);
-                if fast_dwm_count >= 3 {
-                    std::thread::sleep(Duration::from_millis(10));
+                last_frame = Instant::now();
+                // SAFETY: No Win32 dispatch is active here; short-lived exclusive access to `host_ptr`.
+                let host_ref = unsafe { &mut *host_ptr };
+                if let Some(ref mut pb) = host_ref.perf_bench {
+                    pb.loop_iters += 1;
                 }
-            } else {
-                fast_dwm_count = 0;
-            }
-            let now = Instant::now();
-            let dt = now.duration_since(last_frame).as_secs_f64();
-            last_frame = now;
-
-            // SAFETY: No Win32 dispatch is active here; short-lived exclusive access to `host_ptr`.
-            let host_ref = unsafe { &mut *host_ptr };
-            drain_bg_events(host_ref);
-            sync_drag_approach(host_ref);
-            if let Ok(mut app) = host_ref.app.try_borrow_mut() {
-                app.poll_periodic(Some(&host_ref.factories));
-            }
-            let work_start = Instant::now();
-            let (should_render, animating_now, expanded_now) =
-                if let Ok(mut app) = host_ref.app.try_borrow_mut() {
-                    app.step_animations(dt, Some(&host_ref.factories));
-                    (
-                        app.dirty || app.frame_timings.recording,
-                        app.animating,
-                        app.expanded,
-                    )
-                } else {
-                    (false, false, false)
-                };
-            if should_render {
-                render_and_present(host_ref);
-            }
-            if host_ref.was_animating
-                && !animating_now
-                && !expanded_now
-                && host_ref.last_trim_at.elapsed() >= Duration::from_secs(10)
-            {
-                host_ref.last_trim_at = Instant::now();
-                trim_working_set();
-            }
-            host_ref.was_animating = animating_now;
-            let work_ms = work_start.elapsed().as_secs_f64() * 1000.0;
-            let done = if let Ok(mut app) = host_ref.app.try_borrow_mut() {
-                app.frame_timings.record_frame(work_ms);
-                app.bench_done
-            } else {
-                false
-            };
-            if done {
-                let exit_now = match host_ref.bench_done_at {
-                    Some(t) => t.elapsed() >= Duration::from_secs(2),
-                    None => {
-                        host_ref.bench_done_at = Some(Instant::now());
-                        false
-                    }
-                };
-                if exit_now {
-                    let hwnd_close = host_ref.hwnd;
-                    // SAFETY: Closing window after bench completion grace period.
-                    unsafe {
-                        let _ = DestroyWindow(hwnd_close);
-                    }
+                drain_bg_events(host_ref);
+                let dirty = host_ref.app.try_borrow().is_ok_and(|a| a.dirty);
+                if dirty {
+                    render_and_present(host_ref);
                 }
-            }
-        } else {
-            fast_dwm_count = 0;
-            // SAFETY: Blocking wait when idle (0% CPU).
-            let ret = unsafe { GetMessageW(&raw mut msg, None, 0, 0) };
-            if ret.0 <= 0 {
-                // SAFETY: Cleaning up host pointer and OLE on exit.
-                unsafe {
-                    drop(Box::from_raw(host_ptr));
-                    if ole_ok {
-                        OleUninitialize();
-                    }
-                }
-                return msg.wParam.0 as i32;
-            }
-            // SAFETY: Standard Win32 message dispatch.
-            unsafe {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-            last_frame = Instant::now();
-            // SAFETY: No Win32 dispatch is active here; short-lived exclusive access to `host_ptr`.
-            let host_ref = unsafe { &mut *host_ptr };
-            drain_bg_events(host_ref);
-            let dirty = host_ref.app.try_borrow().is_ok_and(|a| a.dirty);
-            if dirty {
-                render_and_present(host_ref);
+                tick_perf_bench(host_ref);
+                continue;
             }
         }
+
+        let now = Instant::now();
+        let dt = now.duration_since(last_frame).as_secs_f64();
+        last_frame = now;
+
+        // SAFETY: No Win32 dispatch is active here; short-lived exclusive access to `host_ptr`.
+        let host_ref = unsafe { &mut *host_ptr };
+        if let Some(ref mut pb) = host_ref.perf_bench {
+            pb.loop_iters += 1;
+        }
+        drain_bg_events(host_ref);
+        sync_drag_approach(host_ref);
+        if let Ok(mut app) = host_ref.app.try_borrow_mut() {
+            app.poll_periodic(Some(&host_ref.factories));
+        }
+        let work_start = Instant::now();
+        let (should_render, animating_now, expanded_now) =
+            if let Ok(mut app) = host_ref.app.try_borrow_mut() {
+                app.step_animations(dt, Some(&host_ref.factories));
+                (
+                    app.dirty || app.frame_timings.recording,
+                    app.animating,
+                    app.expanded,
+                )
+            } else {
+                (false, false, false)
+            };
+        if should_render {
+            render_and_present(host_ref);
+        }
+        if host_ref.was_animating
+            && !animating_now
+            && !expanded_now
+            && host_ref.last_trim_at.elapsed() >= Duration::from_secs(10)
+        {
+            host_ref.last_trim_at = Instant::now();
+            trim_working_set();
+        }
+        host_ref.was_animating = animating_now;
+        let work_ms = work_start.elapsed().as_secs_f64() * 1000.0;
+        let done = if let Ok(mut app) = host_ref.app.try_borrow_mut() {
+            app.frame_timings.record_frame(work_ms);
+            app.bench_done
+        } else {
+            false
+        };
+        tick_perf_bench(host_ref);
+        if done {
+            let exit_now = match host_ref.bench_done_at {
+                Some(t) => t.elapsed() >= Duration::from_secs(2),
+                None => {
+                    host_ref.bench_done_at = Some(Instant::now());
+                    false
+                }
+            };
+            if exit_now {
+                let hwnd_close = host_ref.hwnd;
+                // SAFETY: Closing window after bench completion grace period.
+                unsafe {
+                    let _ = DestroyWindow(hwnd_close);
+                }
+            }
+        }
+    }
+}
+
+fn tick_perf_bench(host: &mut WindowHost) {
+    let Some(ref mut pb) = host.perf_bench else {
+        return;
+    };
+    if pb.finished {
+        return;
+    }
+    if !pb.warmup_done {
+        if pb.started_at.elapsed() >= Duration::from_secs(1) {
+            pb.warmup_done = true;
+            pb.sample_start_wall = Instant::now();
+            pb.sample_start_cpu_us = process_cpu_time_us().map_or(0, |(k, u)| k + u);
+            pb.renders = 0;
+            pb.timer_main = 0;
+            pb.timer_hover = 0;
+            pb.wakes = 0;
+            pb.loop_iters = 0;
+        }
+        return;
+    }
+    let elapsed = pb.sample_start_wall.elapsed();
+    if elapsed < Duration::from_secs(4) {
+        return;
+    }
+    pb.finished = true;
+    let end_cpu_us = process_cpu_time_us().map_or(0, |(k, u)| k + u);
+    let cpu_us = end_cpu_us.saturating_sub(pb.sample_start_cpu_us);
+    let wall_ms = elapsed.as_secs_f64() * 1000.0;
+    let cpu_ms = cpu_us as f64 / 1000.0;
+    let cores = logical_cpu_count().max(1);
+    let cpu_pct = (cpu_ms / (wall_ms * cores as f64)) * 100.0;
+    let core_pct = (cpu_ms / wall_ms) * 100.0;
+    let rps = pb.renders as f64 / (wall_ms / 1000.0);
+    let summary = format!(
+        "bench={} wall_ms={:.1} cpu_ms={:.2} cpu_pct={:.3}% core_pct={:.2}% cores={} renders={} rps={:.1} timer_main={} timer_hover={} wakes={} loop_iters={}",
+        pb.name,
+        wall_ms,
+        cpu_ms,
+        cpu_pct,
+        core_pct,
+        cores,
+        pb.renders,
+        rps,
+        pb.timer_main,
+        pb.timer_hover,
+        pb.wakes,
+        pb.loop_iters
+    );
+    mochi_winrt::paths::Log::info("bench", &summary);
+    if let Ok(mut app) = host.app.try_borrow_mut() {
+        app.frame_timings.note(&summary);
+    }
+    let hwnd_close = host.hwnd;
+    // SAFETY: Closing window after CPU benchmark completes.
+    unsafe {
+        let _ = DestroyWindow(hwnd_close);
     }
 }
 
@@ -1209,13 +1379,16 @@ fn spawn_update_install(
 }
 
 fn refresh_display_cache(host: &mut WindowHost) {
-    let Ok(app) = host.app.try_borrow() else {
+    let Ok(mut app) = host.app.try_borrow_mut() else {
         return;
     };
-    let disp = Monitors::resolve(app.store.data.settings.monitor.as_deref(), app.lang);
+    let mon = app.store.data.settings.monitor.clone();
+    let disp = Monitors::resolve(mon.as_deref(), app.lang);
     let scale = Monitors::scale_at(disp.x + disp.width / 2, disp.y);
+    app.display_dip_width = f64::from(disp.width) / scale.max(0.5);
     host.cached_disp = disp;
     host.cached_scale = scale;
+    host.last_monitor_setting = mon;
 }
 
 fn render_and_present(host: &mut WindowHost) {
@@ -1275,9 +1448,20 @@ fn render_and_present(host: &mut WindowHost) {
         }
         host.surface.end_draw();
         host.surface.present_layered(host.hwnd, px, py);
+        if let Some(ref mut pb) = host.perf_bench {
+            pb.renders += 1;
+        }
     }
     host.rendering = false;
     let _ = apply_click_through_from_cursor(host);
+}
+
+fn host_cursor_pos(host: &WindowHost) -> Option<(i32, i32)> {
+    host.app
+        .try_borrow()
+        .ok()
+        .and_then(|a| a.bench_cursor_px)
+        .or_else(get_cursor_pos)
 }
 
 struct ClickThroughEval {
@@ -1291,7 +1475,7 @@ struct ClickThroughEval {
 }
 
 fn cursor_dip(host: &WindowHost) -> Option<(f32, f32)> {
-    let (sx, sy) = get_cursor_pos()?;
+    let (sx, sy) = host_cursor_pos(host)?;
     let mut pt = POINT { x: sx, y: sy };
     // SAFETY: Converting screen cursor coordinates to client coordinates.
     unsafe {
@@ -1335,9 +1519,16 @@ fn set_click_through(host: &mut WindowHost, transparent: bool) {
     }
 }
 
-fn update_hover_watch_timer(host: &mut WindowHost, near_notch: bool) {
+fn update_hover_watch_timer(host: &mut WindowHost, near_notch: bool, cursor_moved: bool) {
+    host.last_hover_near = near_notch;
     let desired = if host.click_through && host.was_visible {
-        if near_notch { 16 } else { 80 }
+        if !cursor_moved {
+            if near_notch { 250 } else { 0 }
+        } else if near_notch {
+            33
+        } else {
+            160
+        }
     } else {
         0
     };
@@ -1355,6 +1546,36 @@ fn update_hover_watch_timer(host: &mut WindowHost, near_notch: bool) {
     }
 }
 
+fn update_main_timer(host: &mut WindowHost) {
+    let desired = host.app.try_borrow().map_or(250, |app| {
+        if !app.is_visible() {
+            1000
+        } else if app.expanded
+            || app.hud_active
+            || app.news_active
+            || app.hover_deadline.is_some()
+            || app.pinned_until.is_some()
+            || app.focus.state == crate::state::FocusState::Running
+            || app.undo.is_some()
+            || app.clipboard_copied_until.is_some()
+            || app.store_dirty_at.is_some()
+            || app.bench.is_some()
+        {
+            250
+        } else {
+            500
+        }
+    });
+    if host.main_timer_ms == desired {
+        return;
+    }
+    host.main_timer_ms = desired;
+    // SAFETY: `host.hwnd` is valid on the UI thread.
+    unsafe {
+        let _ = SetTimer(Some(host.hwnd), TIMER_MAIN, desired, None);
+    }
+}
+
 fn schedule_click_through_sync(host: &mut WindowHost) {
     if !host.click_through && !host.sync_pending {
         host.sync_pending = true;
@@ -1369,7 +1590,7 @@ fn apply_click_through_from_cursor(host: &mut WindowHost) -> ClickThroughEval {
     if !host.was_visible {
         let prev = host.click_through;
         set_click_through(host, true);
-        update_hover_watch_timer(host, false);
+        update_hover_watch_timer(host, false, false);
         return ClickThroughEval {
             entered: false,
             left: !prev,
@@ -1384,7 +1605,7 @@ fn apply_click_through_from_cursor(host: &mut WindowHost) -> ClickThroughEval {
     let Some((x, y)) = cursor_dip(host) else {
         let prev = host.click_through;
         set_click_through(host, true);
-        update_hover_watch_timer(host, false);
+        update_hover_watch_timer(host, false, false);
         return ClickThroughEval {
             entered: false,
             left: !prev,
@@ -1396,13 +1617,12 @@ fn apply_click_through_from_cursor(host: &mut WindowHost) -> ClickThroughEval {
         };
     };
 
-    let Ok((seeking, drop_hinting, win_w, win_h, notch_w, notch_h, was_approaching)) =
+    let Ok((seeking, drop_hinting, win_w, notch_w, notch_h, was_approaching)) =
         host.app.try_borrow().map(|app| {
             (
                 app.seeking,
                 app.drop_hinting,
                 app.window_w as f32,
-                app.window_h as f32,
                 app.width.value.max(120.0) as f32,
                 app.height.value.max(30.0) as f32,
                 app.drag_approaching,
@@ -1441,12 +1661,12 @@ fn apply_click_through_from_cursor(host: &mut WindowHost) -> ClickThroughEval {
     let in_drop_target =
         drop_hinting && ((x - cx).abs() <= 380.0 && (0.0..=EXPANDED_WIDE.1 as f32).contains(&y));
     let should_capture = seeking || in_drop_target || in_drag_catch || target != HoverTarget::None;
-    let near_notch =
-        ole_drag || ((x - cx).abs() <= win_w * 0.5 + 80.0 && (-8.0..=win_h + 80.0).contains(&y));
+    let near_notch = ole_drag
+        || ((x - cx).abs() <= notch_w * 0.5 + 80.0 && (-8.0..=notch_h + 60.0).contains(&y));
 
     let prev = host.click_through;
     set_click_through(host, !should_capture);
-    update_hover_watch_timer(host, near_notch);
+    update_hover_watch_timer(host, near_notch, true);
 
     ClickThroughEval {
         entered: prev && !host.click_through,
@@ -1667,6 +1887,9 @@ unsafe extern "system" fn notch_wnd_proc(
             }
         }
         WM_WAKE => {
+            if let Some(ref mut pb) = host.perf_bench {
+                pb.wakes += 1;
+            }
             drain_bg_events(host);
             if host.app.try_borrow().is_ok_and(|a| a.update_pending_exit) {
                 // SAFETY: Closing main window cleanly so the silent installer can replace binaries and relaunch.
@@ -1675,13 +1898,20 @@ unsafe extern "system" fn notch_wnd_proc(
                 }
                 return LRESULT(0);
             }
-            refresh_display_cache(host);
+            let mon_changed = host
+                .app
+                .try_borrow()
+                .is_ok_and(|a| a.store.data.settings.monitor != host.last_monitor_setting);
+            if mon_changed {
+                refresh_display_cache(host);
+            }
             if let Ok(app) = host.app.try_borrow() {
                 app.sync_online_config();
             }
             update_hotkeys(host);
             apply_capture_exclusion(host);
             render_and_present(host);
+            update_main_timer(host);
             LRESULT(0)
         }
         WM_DISPLAYCHANGE => {
@@ -1697,22 +1927,44 @@ unsafe extern "system" fn notch_wnd_proc(
                     app.dirty = true;
                 }
                 render_and_present(host);
+                update_main_timer(host);
             }
             LRESULT(0)
         }
         WM_TIMER => {
             if wparam.0 == TIMER_HOVER_WATCH {
+                if let Some(ref mut pb) = host.perf_bench {
+                    pb.timer_hover += 1;
+                }
+                let cursor = host_cursor_pos(host);
+                let btn_down = is_mouse_button_down();
+                if cursor == host.last_hover_cursor && btn_down == host.last_hover_btn_down {
+                    update_hover_watch_timer(host, host.last_hover_near, false);
+                    return LRESULT(0);
+                }
+                host.last_hover_cursor = cursor;
+                host.last_hover_btn_down = btn_down;
                 sync_click_through(host);
                 if let Ok(mut app) = host.app.try_borrow_mut()
                     && !app.needs_continuous_frames()
+                    && (app.expanded || host.last_hover_near)
                 {
-                    let cursor_px = get_cursor_pos().map(|(x, y)| (f64::from(x), f64::from(y)));
+                    let cursor_px = cursor.map(|(x, y)| (f64::from(x), f64::from(y)));
                     app.poll_idle_gaze(cursor_px);
                 }
                 return LRESULT(0);
             }
-            refresh_display_cache(host);
+            if let Some(ref mut pb) = host.perf_bench {
+                pb.timer_main += 1;
+            }
             sync_drag_approach(host);
+            let raw_cursor = host_cursor_pos(host);
+            let disp_rect = (
+                host.cached_disp.x,
+                host.cached_disp.y,
+                host.cached_disp.width,
+                host.cached_disp.height,
+            );
             let Ok(mut app) = host.app.try_borrow_mut() else {
                 return LRESULT(0);
             };
@@ -1720,9 +1972,7 @@ unsafe extern "system" fn notch_wnd_proc(
                 app.session_locked = false;
                 app.dirty = true;
             }
-            let mon = app.store.data.settings.monitor.clone();
-            let lang = app.lang;
-            let fs = detect_fullscreen(hwnd, mon.as_deref(), lang);
+            let fs = detect_fullscreen(hwnd, disp_rect);
             if fs != app.fullscreen_app {
                 app.fullscreen_app = fs;
                 app.dirty = true;
@@ -1737,8 +1987,10 @@ unsafe extern "system" fn notch_wnd_proc(
             app.poll_periodic(Some(&host.factories));
             app.update_clock(Some(&host.factories));
             if !app.needs_continuous_frames() {
-                let cursor_px = get_cursor_pos().map(|(x, y)| (f64::from(x), f64::from(y)));
-                app.poll_idle_gaze(cursor_px);
+                let gaze_cursor = raw_cursor
+                    .filter(|&p| app.expanded || app.is_cursor_near_notch(p))
+                    .map(|(x, y)| (f64::from(x), f64::from(y)));
+                app.poll_idle_gaze(gaze_cursor);
             }
             if app.focus.state == crate::state::FocusState::Running
                 || (app.expanded
@@ -1751,8 +2003,15 @@ unsafe extern "system" fn notch_wnd_proc(
             drop(app);
             if dirty {
                 render_and_present(host);
+            } else {
+                let btn_down = is_mouse_button_down();
+                if raw_cursor != host.last_hover_cursor || btn_down != host.last_hover_btn_down {
+                    host.last_hover_cursor = raw_cursor;
+                    host.last_hover_btn_down = btn_down;
+                    sync_click_through(host);
+                }
             }
-            sync_click_through(host);
+            update_main_timer(host);
             if !host.startup_trimmed && host.last_trim_at.elapsed() >= Duration::from_secs(5) {
                 host.startup_trimmed = true;
                 host.last_trim_at = Instant::now();
@@ -3078,15 +3337,21 @@ fn extract_hdrop_paths(data_obj: &IDataObject) -> Option<Vec<String>> {
     Some(paths)
 }
 
-fn is_ole_drag_active() -> bool {
-    // SAFETY: Checking mouse button state and `SysDragImage` window visibility.
+fn is_mouse_button_down() -> bool {
+    // SAFETY: GetAsyncKeyState has no preconditions.
     unsafe {
-        let btn_down =
-            GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0 || GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0;
-        if !btn_down {
-            return false;
-        }
-        let cls = to_wide("SysDragImage");
+        GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0 || GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0
+    }
+}
+
+fn is_ole_drag_active() -> bool {
+    static SYS_DRAG_IMAGE: OnceLock<Vec<u16>> = OnceLock::new();
+    if !is_mouse_button_down() {
+        return false;
+    }
+    let cls = SYS_DRAG_IMAGE.get_or_init(|| to_wide("SysDragImage"));
+    // SAFETY: Checking `SysDragImage` window visibility with static NUL-terminated UTF-16 class name.
+    unsafe {
         let Ok(drag_hwnd) = FindWindowW(PCWSTR(cls.as_ptr()), PCWSTR::null()) else {
             return false;
         };

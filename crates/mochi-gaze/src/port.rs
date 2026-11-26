@@ -194,6 +194,10 @@ impl EyeGazeController {
             self.target_x = gx;
             self.target_y = gy;
         } else {
+            if cursor_local_offset_dip.is_none() && self.is_tracking_cursor {
+                self.target_x = 0.0;
+                self.target_y = 0.0;
+            }
             self.is_tracking_cursor = false;
             self.glance_cooldown -= dt;
             if self.glance_cooldown <= 0.0 {

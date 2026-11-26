@@ -78,6 +78,13 @@ pub enum NotchPage {
     Weather = 9,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FramePacing {
+    Idle,
+    Ambient,
+    Transition,
+}
+
 #[derive(Debug, Clone)]
 pub struct FrameTimings {
     pub path: Option<PathBuf>,
@@ -495,6 +502,7 @@ pub struct NotchApp {
     pub cursor_dip: (f64, f64),
     pub window_screen_origin: (i32, i32),
     pub window_scale: f64,
+    pub display_dip_width: f64,
     pub window_w: f64,
     pub window_h: f64,
     pub refresh_angle: f64,
@@ -504,6 +512,8 @@ pub struct NotchApp {
     pub last_os_poll: Instant,
     pub last_gaze_idle_at: Instant,
     pub last_clock_sec: u32,
+    pub last_clock_minute: u32,
+    pub last_prayer_check_min: u32,
 
     // Bench & Shots
     pub bench: Option<String>,
@@ -515,6 +525,7 @@ pub struct NotchApp {
     pub bench_step: usize,
     pub bench_next_step_at: Option<Instant>,
     pub bench_done: bool,
+    pub bench_cursor_px: Option<(i32, i32)>,
 }
 
 impl NotchApp {
@@ -790,6 +801,7 @@ impl NotchApp {
             cursor_dip: (0.0, 0.0),
             window_screen_origin: (0, 0),
             window_scale: 1.0,
+            display_dip_width: 1920.0,
             window_w: 644.0,
             window_h: 120.0,
             refresh_angle: 0.0,
@@ -799,6 +811,8 @@ impl NotchApp {
             last_os_poll: Instant::now(),
             last_gaze_idle_at: Instant::now(),
             last_clock_sec: now_local.second(),
+            last_clock_minute: u32::MAX,
+            last_prayer_check_min: u32::MAX,
 
             bench,
             bench_variant,
@@ -809,6 +823,7 @@ impl NotchApp {
             bench_step: 0,
             bench_next_step_at: None,
             bench_done: false,
+            bench_cursor_px: None,
         };
 
         if !cfg!(test) && app.bench.is_none() && app.shots_dir.is_none() {
@@ -837,6 +852,8 @@ impl NotchApp {
         app.update_companion();
         app.update_targets(None);
         app.snap_all_springs();
+        app.animating = false;
+        app.fit_window(true);
         app
     }
 
@@ -1224,16 +1241,17 @@ impl NotchApp {
             .max(self.height.value.max(self.height.target) + ph)
             + BOTTOM_ROOM;
 
-        w = w.max(644.0);
-        if !self.expanded {
-            h = h.max(120.0);
-        }
+        w = w.max(160.0);
+        h = h.max(64.0);
         w = (w / 2.0).ceil() * 2.0;
         h = h.ceil();
 
         if !allow_shrink {
             w = w.max(self.window_w);
             h = h.max(self.window_h);
+        }
+        if (self.window_w - w).abs() > 0.5 || (self.window_h - h).abs() > 0.5 {
+            self.dirty = true;
         }
         self.window_w = w;
         self.window_h = h;
@@ -1477,20 +1495,30 @@ impl NotchApp {
         }
 
         // Companion animators
+        let bench_allows_cursor =
+            self.bench.is_none() || self.bench.as_deref() == Some("idle-mouse");
         let track_cursor = !cfg!(test)
-            && self.bench.is_none()
+            && bench_allows_cursor
             && self.shots_dir.is_none()
             && (self.ambient_shown
                 || self.expanded
                 || self.clock_companion.mode != CompanionMode::Still
                 || self.idle_companion.mode != CompanionMode::Still);
         let (cursor_px, cursor_off) = if track_cursor {
-            let px = get_cursor_pos().map(|(x, y)| (f64::from(x), f64::from(y)));
-            let scale = self.window_scale.max(0.5);
-            let center_x = f64::from(self.window_screen_origin.0) + (self.window_w * scale) / 2.0;
-            let center_y = f64::from(self.window_screen_origin.1) + 15.0 * scale;
-            let off = px.map(|(cx, cy)| ((cx - center_x) / scale, (cy - center_y) / scale));
-            (px, off)
+            let raw_px = self.bench_cursor_px.or_else(get_cursor_pos);
+            let near_or_open =
+                self.expanded || raw_px.is_some_and(|p| self.is_cursor_near_notch(p));
+            if near_or_open {
+                let px = raw_px.map(|(x, y)| (f64::from(x), f64::from(y)));
+                let scale = self.window_scale.max(0.5);
+                let center_x =
+                    f64::from(self.window_screen_origin.0) + (self.window_w * scale) / 2.0;
+                let center_y = f64::from(self.window_screen_origin.1) + 15.0 * scale;
+                let off = px.map(|(cx, cy)| ((cx - center_x) / scale, (cy - center_y) / scale));
+                (px, off)
+            } else {
+                (None, None)
+            }
         } else {
             (None, None)
         };
@@ -1568,12 +1596,17 @@ impl NotchApp {
             self.refresh_angle = 0.0;
         }
 
-        if !self.reduce_motion && self.expanded && self.page == NotchPage::Weather {
+        if !self.reduce_motion
+            && self.is_visible()
+            && self.expanded
+            && self.page == NotchPage::Weather
+        {
             self.weather_anim_phase =
                 (self.weather_anim_phase + dt * 2.2) % (std::f64::consts::TAU * 100.0);
             self.dirty = true;
         }
-        if !self.reduce_motion && self.expanded && self.page == NotchPage::Pray {
+        if !self.reduce_motion && self.is_visible() && self.expanded && self.page == NotchPage::Pray
+        {
             self.pray_anim_phase =
                 (self.pray_anim_phase + dt * 1.8) % (std::f64::consts::TAU * 100.0);
             self.dirty = true;
@@ -1601,13 +1634,25 @@ impl NotchApp {
         moving
     }
 
+    pub fn is_cursor_near_notch(&self, cursor_px: (i32, i32)) -> bool {
+        let scale = self.window_scale.max(0.5);
+        let center_x = f64::from(self.window_screen_origin.0) + (self.window_w * scale) * 0.5;
+        let top_y = f64::from(self.window_screen_origin.1);
+        let dx = (f64::from(cursor_px.0) - center_x).abs() / scale;
+        let dy = (f64::from(cursor_px.1) - top_y) / scale;
+        let half_w = self.width.value.max(120.0) * 0.5 + 140.0;
+        dx <= half_w && (-16.0..=140.0).contains(&dy)
+    }
+
     pub fn poll_idle_gaze(&mut self, cursor_px: Option<(f64, f64)>) -> bool {
         let now = Instant::now();
         let dt = now.duration_since(self.last_gaze_idle_at).as_secs_f64();
         self.last_gaze_idle_at = now;
+        let bench_allows_cursor =
+            self.bench.is_none() || self.bench.as_deref() == Some("idle-mouse");
         if self.reduce_motion
             || !self.is_visible()
-            || self.bench.is_some()
+            || !bench_allows_cursor
             || self.shots_dir.is_some()
         {
             return false;
@@ -1658,12 +1703,12 @@ impl NotchApp {
         woke
     }
 
-    pub fn needs_continuous_frames(&self) -> bool {
+    pub fn frame_pacing(&self) -> FramePacing {
         if self.frame_timings.recording || self.bench_next_step_at.is_some() {
-            return true;
+            return FramePacing::Transition;
         }
         if !self.is_visible() {
-            return false;
+            return FramePacing::Idle;
         }
         let tab_dock_moving = self.tab_bounce_t < 1.0
             || self
@@ -1676,16 +1721,27 @@ impl NotchApp {
             || self.tab_pill_w.velocity.abs() > 0.5
             || self.tab_hover_anim.iter().any(|&h| h > 0.005 && h < 0.995)
             || (self.gear_hover_anim > 0.005 && self.gear_hover_anim < 0.995);
-        self.animating
+        let transition = self.animating
             || tab_dock_moving
             || self.page_slide_t < 1.0
             || self.accent_t < 1.0
             || self.lyric_scroll_t < 1.0
             || self.compact_swap_phase > 0.0
             || (self.news_active && self.news_flight_t < 1.0)
-            || (self.media_state.as_ref().is_some_and(|m| m.is_playing)
-                && !self.expanded
-                && !self.reduce_motion)
+            || (self.hud_bar_fill - self.hud_bar_target).abs() > 0.2
+            || self.drag_approaching
+            || self.drop_hinting
+            || self.drag_approach > 0.005
+            || self.drag_anim > 0.005
+            || self.drop_burst_t < 1.0
+            || self.shelf_flash_t > 0.005
+            || self.notif_pulse_t > 0.005;
+        if transition {
+            return FramePacing::Transition;
+        }
+        let ambient = (self.media_state.as_ref().is_some_and(|m| m.is_playing)
+            && !self.expanded
+            && !self.reduce_motion)
             || (self.media_state.is_some()
                 && !self.expanded
                 && !self.reduce_motion
@@ -1704,19 +1760,21 @@ impl NotchApp {
             || self.hud_companion.is_animating(self.reduce_motion)
             || self.music_companion.is_animating(self.reduce_motion)
             || self.news_companion.is_animating(self.reduce_motion)
-            || self.drag_approaching
-            || self.drop_hinting
-            || self.drag_approach > 0.005
-            || self.drag_anim > 0.005
-            || self.drop_burst_t < 1.0
-            || self.shelf_flash_t > 0.005
-            || self.notif_pulse_t > 0.005
             || (!self.reduce_motion && self.activities.iter().any(|a| a.state == "Running"))
             || (self.expanded && self.page == NotchPage::Weather && !self.reduce_motion)
             || (self.expanded && self.page == NotchPage::Pray && !self.reduce_motion)
             || (self.page == NotchPage::Agenda && self.calendar_fetching)
             || (self.page == NotchPage::Tasks && self.tasks_syncing)
-            || (self.page == NotchPage::Weather && self.weather_searching)
+            || (self.page == NotchPage::Weather && self.weather_searching);
+        if ambient {
+            FramePacing::Ambient
+        } else {
+            FramePacing::Idle
+        }
+    }
+
+    pub fn needs_continuous_frames(&self) -> bool {
+        self.frame_pacing() != FramePacing::Idle
     }
 
     pub fn set_compact_text(&mut self, text: String) {
@@ -1744,6 +1802,17 @@ impl NotchApp {
 
     pub fn update_clock(&mut self, factories: Option<&D2dFactories>) {
         let now = Local::now().naive_local();
+        let minute_key = now.hour() * 60 + now.minute();
+        if self.media_state.is_none()
+            && self.calendar_events.is_empty()
+            && self.activities.is_empty()
+            && !self.focus.is_active()
+            && self.upcoming_text.is_none()
+            && self.last_clock_minute == minute_key
+        {
+            return;
+        }
+        self.last_clock_minute = minute_key;
         let time = format!("{:02}:{:02}", now.hour(), now.minute());
         let upcoming_ev = if self.store.data.settings.calendar_in_compact {
             self.calendar_events
@@ -1902,6 +1971,12 @@ impl NotchApp {
         // Keyboard, Power & Presence (throttled to 100ms so 100Hz animation frames stay jitter-free)
         if now_inst.duration_since(self.last_os_poll) >= Duration::from_millis(100) {
             self.last_os_poll = now_inst;
+            if self.bench.as_deref() == Some("idle-mouse") {
+                let (cx, cy) = self.bench_cursor_px.unwrap_or((400, 500));
+                let nx = if cx + 18 > 900 { 320 } else { cx + 18 };
+                let ny = if cy + 7 > 700 { 420 } else { cy + 7 };
+                self.bench_cursor_px = Some((nx, ny));
+            }
             for m in self.keyboard_watcher.poll(self.lang) {
                 self.show_hud(m, factories);
             }
@@ -1981,8 +2056,12 @@ impl NotchApp {
         // Lyrics sync
         self.update_lyric_line(factories);
 
-        // Prayer schedule & notifications
-        self.check_prayer_notifications(now_local, factories);
+        // Prayer schedule & notifications (only check once per minute or before first schedule)
+        let pray_min = now_local.hour() * 60 + now_local.minute();
+        if self.pray_schedule.is_none() || pray_min != self.last_prayer_check_min {
+            self.last_prayer_check_min = pray_min;
+            self.check_prayer_notifications(now_local, factories);
+        }
 
         // Bench transitions driver
         if self.bench.as_deref() == Some("transitions")
@@ -1999,10 +2078,58 @@ impl NotchApp {
             return;
         };
         match b.as_str() {
+            "idle" => {
+                self.store.data.settings.companion_enabled = true;
+                self.presence_state = 0;
+                self.update_companion();
+                self.update_targets(factories);
+                self.snap_all_springs();
+                self.animating = false;
+            }
+            "idle-mouse" => {
+                self.store.data.settings.companion_enabled = true;
+                self.presence_state = 0;
+                self.bench_cursor_px = Some((400, 500));
+                self.update_companion();
+                self.update_targets(factories);
+                self.snap_all_springs();
+                self.animating = false;
+            }
             "music" => self.simulate_bench_track(factories),
-            "open" => {
+            "agent" => {
+                let _ = self.handle_activity(
+                    r#"{"op":"set","id":"bench-agent","title":"Copilot","text":"working","icon":"copilot","state":"running"}"#,
+                    factories,
+                );
+                self.hide_hud(factories);
+                self.snap_all_springs();
+                self.animating = false;
+            }
+            "open" | "open-media" => {
                 self.simulate_bench_track(factories);
                 self.show_page("media", 300, factories);
+            }
+            "open-weather" => {
+                let now = Local::now().naive_local();
+                self.weather_report = Some(mochi_winrt::weather::WeatherReport {
+                    temperature: 28.0,
+                    feels_like: Some(30.0),
+                    humidity: Some(72),
+                    wind_kmh: Some(12.0),
+                    uv_index: Some(5.0),
+                    code: 2,
+                    is_day: true,
+                    high: Some(31.0),
+                    low: Some(24.0),
+                    rain_at: None,
+                    rain_chance: 20,
+                    icon: "PartlyCloudy".to_string(),
+                    description: "Partly cloudy".to_string(),
+                    temperature_text: "28°".to_string(),
+                    hourly: Vec::new(),
+                    fetched_at: now,
+                });
+                self.show_page("weather", 300, factories);
             }
             "focus" => {
                 self.focus.start();
@@ -2541,5 +2668,49 @@ mod tests {
             .unwrap();
         assert_eq!(remote_after.id, remote_id);
         assert_eq!(remote_after.text, "Remote task updated");
+    }
+
+    #[test]
+    fn frame_pacing_tiers_and_bubble_dedup_prevent_idle_wakeups() {
+        let mut app = NotchApp::new(None, None, None, None);
+        app.snap_all_springs();
+        app.animating = false;
+        app.dirty = false;
+        for _ in 0..120 {
+            app.step_animations(0.033, None);
+            if app.frame_pacing() == FramePacing::Idle {
+                break;
+            }
+        }
+        assert_eq!(app.frame_pacing(), FramePacing::Idle);
+        assert!(app.window_w < 300.0 && app.window_h < 100.0);
+
+        // Running activity uses Ambient pacing (24 FPS), not Transition (60 FPS)
+        let reply = app.handle_activity(
+            r#"{"op":"set","id":"build","title":"cargo","text":"compiling","state":"running"}"#,
+            None,
+        );
+        assert_eq!(reply, "ok");
+        app.hide_hud(None);
+        app.snap_all_springs();
+        app.animating = false;
+        for _ in 0..120 {
+            app.step_animations(0.033, None);
+            if app.frame_pacing() == FramePacing::Ambient {
+                break;
+            }
+        }
+        assert_eq!(app.frame_pacing(), FramePacing::Ambient);
+
+        // Repeated update_bubble with identical state must not mark dirty
+        app.dirty = false;
+        app.update_bubble();
+        assert!(!app.dirty);
+
+        // Distant desktop cursor is ignored by is_cursor_near_notch
+        app.window_screen_origin = (600, 0);
+        app.window_scale = 1.0;
+        assert!(!app.is_cursor_near_notch((100, 600)));
+        assert!(app.is_cursor_near_notch((600 + (app.window_w as i32) / 2, 20)));
     }
 }
