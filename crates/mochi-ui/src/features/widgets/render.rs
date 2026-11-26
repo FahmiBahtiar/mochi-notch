@@ -544,17 +544,5 @@ pub(crate) fn rounded_rect_geom(
     h: f32,
     r: f32,
 ) -> Option<ID2D1Geometry> {
-    let rr = windows::Win32::Graphics::Direct2D::D2D1_ROUNDED_RECT {
-        rect: windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
-            left: x,
-            top: y,
-            right: x + w,
-            bottom: y + h,
-        },
-        radiusX: r,
-        radiusY: r,
-    };
-    // SAFETY: `factories.d2d` is valid.
-    let g = unsafe { factories.d2d.CreateRoundedRectangleGeometry(&rr) }.ok()?;
-    Some(g.cast().unwrap())
+    factories.build_rounded_rect_geometry(x, y, w, h, r)
 }

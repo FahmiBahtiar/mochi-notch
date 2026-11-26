@@ -700,8 +700,15 @@ pub fn render_notch(app: &mut NotchApp, factories: &D2dFactories, surf: &mut D2d
         surf.set_transform(Matrix3x2::identity());
     }
 
-    // Clip ContentHost to rounded notch geometry (or rect fallback)
-    if let Some(ref geom) = notch_geom {
+    // Clip ContentHost to rounded notch geometry when needed, or fast axis-aligned clip when settled collapsed
+    let approach_vis = (app.drag_approach as f32).clamp(0.0, 1.0) * compact_opacity;
+    let need_geom_mask = app.expanded
+        || app.expand.value > 0.001
+        || app.hud.value > 0.001
+        || app.compact_swap_phase > 0.0
+        || approach_vis > 0.01
+        || app.drop_burst_t < 0.55;
+    let used_geom_mask = if need_geom_mask && let Some(ref geom) = notch_geom {
         let g: ID2D1Geometry = geom.cast().unwrap();
         surf.push_layer_masked(
             notch_x,
@@ -713,12 +720,13 @@ pub fn render_notch(app: &mut NotchApp, factories: &D2dFactories, surf: &mut D2d
             Matrix3x2::translation(notch_outer_x, 0.0),
             None,
         );
+        true
     } else {
         surf.push_clip(notch_x, 0.0, w, h);
-    }
+        false
+    };
 
     // 4. CompactView
-    let approach_vis = (app.drag_approach as f32).clamp(0.0, 1.0) * compact_opacity;
     let compact_fade = (1.0 - approach_vis * 2.2).clamp(0.0, 1.0);
     let compact_vis = under_overlay * (1.0 - ambient) * compact_fade;
     if compact_vis > 0.001 {
@@ -942,7 +950,7 @@ pub fn render_notch(app: &mut NotchApp, factories: &D2dFactories, surf: &mut D2d
         surf.pop_layer();
     }
 
-    if notch_geom.is_some() {
+    if used_geom_mask {
         surf.pop_layer();
     } else {
         surf.pop_clip();

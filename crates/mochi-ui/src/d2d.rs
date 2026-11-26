@@ -73,7 +73,24 @@ pub enum VAlign {
 }
 
 type FormatKey = (u8, u32, bool, u8, u8, bool, bool);
-type NotchCacheEntry = ((u32, u32, u32), ID2D1PathGeometry);
+type GeomKey3 = (u32, u32, u32);
+type GeomKey5 = (u32, u32, u32, u32, u32);
+
+struct CachedLayout {
+    text: String,
+    kind: u8,
+    size_bits: u32,
+    semibold: bool,
+    max_w_bits: u32,
+    max_h_bits: u32,
+    halign: u8,
+    valign: u8,
+    tabular: bool,
+    wrap: bool,
+    ellipsis: bool,
+    strikethrough: bool,
+    layout: IDWriteTextLayout,
+}
 
 pub struct D2dFactories {
     pub d2d: ID2D1Factory,
@@ -82,9 +99,13 @@ pub struct D2dFactories {
     pub round_stroke: ID2D1StrokeStyle,
     pub dashed_stroke: ID2D1StrokeStyle,
     pub pointer_geom: ID2D1PathGeometry,
+    pub unit_sparkle_geom: ID2D1PathGeometry,
     tabular_typo: Option<IDWriteTypography>,
     format_cache: RefCell<HashMap<FormatKey, IDWriteTextFormat>>,
-    notch_cache: RefCell<Option<NotchCacheEntry>>,
+    layout_cache: RefCell<Vec<CachedLayout>>,
+    notch_cache: RefCell<HashMap<GeomKey3, ID2D1PathGeometry>>,
+    arc_cache: RefCell<HashMap<GeomKey3, ID2D1PathGeometry>>,
+    rounded_rect_cache: RefCell<HashMap<GeomKey5, ID2D1Geometry>>,
 }
 
 impl D2dFactories {
@@ -116,6 +137,7 @@ impl D2dFactories {
         let dashed_stroke = unsafe { d2d.CreateStrokeStyle(&dash_props, Some(&dashes))? };
 
         let pointer_geom = build_pointer_geometry(&d2d)?;
+        let unit_sparkle_geom = build_unit_sparkle_geometry(&d2d)?;
 
         // SAFETY: Creating shared tabular-figures typography object.
         let tabular_typo = unsafe { dwrite.CreateTypography() }.ok().inspect(|typo| {
@@ -136,9 +158,13 @@ impl D2dFactories {
             round_stroke,
             dashed_stroke,
             pointer_geom,
+            unit_sparkle_geom,
             tabular_typo,
             format_cache: RefCell::new(HashMap::new()),
-            notch_cache: RefCell::new(None),
+            layout_cache: RefCell::new(Vec::with_capacity(96)),
+            notch_cache: RefCell::new(HashMap::new()),
+            arc_cache: RefCell::new(HashMap::new()),
+            rounded_rect_cache: RefCell::new(HashMap::new()),
         })
     }
 
@@ -205,15 +231,35 @@ impl D2dFactories {
         ellipsis: bool,
         strikethrough: bool,
     ) -> windows_core::Result<IDWriteTextLayout> {
-        let key: FormatKey = (
-            kind as u8,
-            size.to_bits(),
-            semibold,
-            halign as u8,
-            valign as u8,
-            wrap,
-            ellipsis,
-        );
+        let mw = max_w.max(1.0);
+        let mh = max_h.max(1.0);
+        let kind_u8 = kind as u8;
+        let size_bits = size.to_bits();
+        let mw_bits = mw.to_bits();
+        let mh_bits = mh.to_bits();
+        let ha_u8 = halign as u8;
+        let va_u8 = valign as u8;
+        if text.len() <= 256 {
+            let cache = self.layout_cache.borrow();
+            if let Some(hit) = cache.iter().rev().find(|e| {
+                e.size_bits == size_bits
+                    && e.kind == kind_u8
+                    && e.semibold == semibold
+                    && e.max_w_bits == mw_bits
+                    && e.max_h_bits == mh_bits
+                    && e.halign == ha_u8
+                    && e.valign == va_u8
+                    && e.tabular == tabular
+                    && e.wrap == wrap
+                    && e.ellipsis == ellipsis
+                    && e.strikethrough == strikethrough
+                    && e.text == text
+            }) {
+                return Ok(hit.layout.clone());
+            }
+        }
+
+        let key: FormatKey = (kind_u8, size_bits, semibold, ha_u8, va_u8, wrap, ellipsis);
         let fmt = if let Some(cached) = self.format_cache.borrow().get(&key).cloned() {
             cached
         } else {
@@ -254,10 +300,7 @@ impl D2dFactories {
         };
         let utf16: Vec<u16> = text.encode_utf16().collect();
         // SAFETY: `dwrite` and `fmt` are valid.
-        let layout = unsafe {
-            self.dwrite
-                .CreateTextLayout(&utf16, &fmt, max_w.max(1.0), max_h.max(1.0))?
-        };
+        let layout = unsafe { self.dwrite.CreateTextLayout(&utf16, &fmt, mw, mh)? };
         let range = DWRITE_TEXT_RANGE {
             startPosition: 0,
             length: utf16.len() as u32,
@@ -276,6 +319,27 @@ impl D2dFactories {
             unsafe {
                 let _ = layout.SetStrikethrough(true, range);
             }
+        }
+        if text.len() <= 256 {
+            let mut cache = self.layout_cache.borrow_mut();
+            if cache.len() >= 96 {
+                cache.remove(0);
+            }
+            cache.push(CachedLayout {
+                text: text.to_string(),
+                kind: kind_u8,
+                size_bits,
+                semibold,
+                max_w_bits: mw_bits,
+                max_h_bits: mh_bits,
+                halign: ha_u8,
+                valign: va_u8,
+                tabular,
+                wrap,
+                ellipsis,
+                strikethrough,
+                layout: layout.clone(),
+            });
         }
         Ok(layout)
     }
@@ -327,10 +391,8 @@ impl D2dFactories {
         let r = (if radius.is_finite() { radius } else { 15.0 })
             .clamp(0.0, f64::from(w.min(h)) / 2.0) as f32;
         let key = (w.to_bits(), h.to_bits(), r.to_bits());
-        if let Some((k, ref geom)) = *self.notch_cache.borrow()
-            && k == key
-        {
-            return Some(geom.clone());
+        if let Some(geom) = self.notch_cache.borrow().get(&key).cloned() {
+            return Some(geom);
         }
         let e = 8.0_f32;
         let ear_h = 6.0_f32;
@@ -383,7 +445,11 @@ impl D2dFactories {
             sink.EndFigure(D2D1_FIGURE_END_CLOSED);
             let _ = sink.Close();
         }
-        *self.notch_cache.borrow_mut() = Some((key, path.clone()));
+        let mut cache = self.notch_cache.borrow_mut();
+        if cache.len() >= 16 {
+            cache.clear();
+        }
+        cache.insert(key, path.clone());
         Some(path)
     }
 
@@ -396,6 +462,10 @@ impl D2dFactories {
         let p = progress.clamp(0.0, 0.9999);
         if p <= 0.0 {
             return None;
+        }
+        let key = ((p as f32).to_bits(), size.to_bits(), stroke.to_bits());
+        if let Some(geom) = self.arc_cache.borrow().get(&key).cloned() {
+            return Some(geom);
         }
         let radius = (size - stroke) / 2.0;
         let center = size / 2.0;
@@ -426,7 +496,51 @@ impl D2dFactories {
             sink.EndFigure(D2D1_FIGURE_END_OPEN);
             let _ = sink.Close();
         }
+        let mut cache = self.arc_cache.borrow_mut();
+        if cache.len() >= 32 {
+            cache.clear();
+        }
+        cache.insert(key, path.clone());
         Some(path)
+    }
+
+    pub fn build_rounded_rect_geometry(
+        &self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+    ) -> Option<ID2D1Geometry> {
+        let key = (
+            x.to_bits(),
+            y.to_bits(),
+            w.to_bits(),
+            h.to_bits(),
+            r.to_bits(),
+        );
+        if let Some(geom) = self.rounded_rect_cache.borrow().get(&key).cloned() {
+            return Some(geom);
+        }
+        let rr = D2D1_ROUNDED_RECT {
+            rect: D2D_RECT_F {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            },
+            radiusX: r,
+            radiusY: r,
+        };
+        // SAFETY: `self.d2d` is valid.
+        let g = unsafe { self.d2d.CreateRoundedRectangleGeometry(&rr) }.ok()?;
+        let geom: ID2D1Geometry = g.cast().ok()?;
+        let mut cache = self.rounded_rect_cache.borrow_mut();
+        if cache.len() >= 32 {
+            cache.clear();
+        }
+        cache.insert(key, geom.clone());
+        Some(geom)
     }
 
     pub fn decode_image_bytes(&self, bytes: &[u8]) -> Option<DecodedFrame> {
@@ -542,6 +656,19 @@ impl D2dFactories {
     }
 }
 
+struct CachedCurve {
+    points: Vec<(u32, u32)>,
+    baseline_bits: u32,
+    fill_geom: ID2D1Geometry,
+    stroke_geom: ID2D1Geometry,
+}
+
+struct CachedLinearFill {
+    top_rgba: u32,
+    bot_rgba: u32,
+    brush: ID2D1LinearGradientBrush,
+}
+
 pub struct D2dSurface {
     pub rt: ID2D1DCRenderTarget,
     hdc: HDC,
@@ -556,8 +683,12 @@ pub struct D2dSurface {
     solid_brush: Option<ID2D1SolidColorBrush>,
     shadow_cache: HashMap<(u32, u8), [ID2D1Bitmap; 9]>,
     image_bitmaps: HashMap<u64, ID2D1Bitmap>,
+    radial_brush_cache: RefCell<HashMap<(u32, u32), ID2D1RadialGradientBrush>>,
+    linear_mask_cache: RefCell<HashMap<Vec<(u32, u32)>, ID2D1LinearGradientBrush>>,
+    curve_cache: RefCell<Option<CachedCurve>>,
+    curve_fill_cache: RefCell<Option<CachedLinearFill>>,
     layer_pool: Vec<ID2D1Layer>,
-    active_layers: Vec<ID2D1Layer>,
+    active_layers: Vec<Option<ID2D1Layer>>,
 }
 
 impl D2dSurface {
@@ -609,6 +740,10 @@ impl D2dSurface {
             solid_brush,
             shadow_cache: HashMap::new(),
             image_bitmaps: HashMap::new(),
+            radial_brush_cache: RefCell::new(HashMap::new()),
+            linear_mask_cache: RefCell::new(HashMap::new()),
+            curve_cache: RefCell::new(None),
+            curve_fill_cache: RefCell::new(None),
             layer_pool: Vec::new(),
             active_layers: Vec::new(),
         };
@@ -1080,15 +1215,37 @@ impl D2dSurface {
             .fold(f32::INFINITY, f32::min)
             .min(baseline_y - 1.0);
 
-        // 1. Filled area under smooth curve
-        // SAFETY: `factories.d2d` is valid and `fill_path`/`stroke_path` are newly created geometries.
-        if let (Ok(fill_path), Ok(stroke_path)) = unsafe {
-            (
-                factories.d2d.CreatePathGeometry(),
-                factories.d2d.CreatePathGeometry(),
-            )
-        } && let (Ok(fsink), Ok(ssink)) = unsafe { (fill_path.Open(), stroke_path.Open()) }
-        {
+        let pts_key: Vec<(u32, u32)> = points
+            .iter()
+            .map(|&(x, y)| (x.to_bits(), y.to_bits()))
+            .collect();
+        let base_bits = baseline_y.to_bits();
+        let cached_geoms = {
+            let guard = self.curve_cache.borrow();
+            guard.as_ref().and_then(|c| {
+                if c.baseline_bits == base_bits && c.points == pts_key {
+                    Some((c.fill_geom.clone(), c.stroke_geom.clone()))
+                } else {
+                    None
+                }
+            })
+        };
+
+        let (fgeom, sgeom) = if let Some(pair) = cached_geoms {
+            pair
+        } else {
+            // SAFETY: `factories.d2d` is valid and `fill_path`/`stroke_path` are newly created geometries.
+            let (Ok(fill_path), Ok(stroke_path)) = (unsafe {
+                (
+                    factories.d2d.CreatePathGeometry(),
+                    factories.d2d.CreatePathGeometry(),
+                )
+            }) else {
+                return;
+            };
+            let (Ok(fsink), Ok(ssink)) = (unsafe { (fill_path.Open(), stroke_path.Open()) }) else {
+                return;
+            };
             // SAFETY: Building closed fill path and open stroke path from `points`.
             unsafe {
                 fsink.BeginFigure(
@@ -1119,7 +1276,44 @@ impl D2dSurface {
                 let _ = fsink.Close();
                 let _ = ssink.Close();
             }
+            let fg: ID2D1Geometry = fill_path.cast().unwrap();
+            let sg: ID2D1Geometry = stroke_path.cast().unwrap();
+            *self.curve_cache.borrow_mut() = Some(CachedCurve {
+                points: pts_key,
+                baseline_bits: base_bits,
+                fill_geom: fg.clone(),
+                stroke_geom: sg.clone(),
+            });
+            (fg, sg)
+        };
 
+        let pack = |c: Color| -> u32 {
+            let r = (c.r.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let g = (c.g.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let b = (c.b.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let a = (c.a.clamp(0.0, 1.0) * 255.0).round() as u32;
+            (a << 24) | (r << 16) | (g << 8) | b
+        };
+        let top_rgba = pack(fill_top);
+        let bot_rgba = pack(fill_bottom);
+        let cached_brush = {
+            let guard = self.curve_fill_cache.borrow();
+            guard.as_ref().and_then(|c| {
+                if c.top_rgba == top_rgba && c.bot_rgba == bot_rgba {
+                    Some(c.brush.clone())
+                } else {
+                    None
+                }
+            })
+        };
+        let brush = if let Some(b) = cached_brush {
+            // SAFETY: `b` is a valid linear gradient brush owned by `self.rt`.
+            unsafe {
+                b.SetStartPoint(Vector2::new(0.0, min_y));
+                b.SetEndPoint(Vector2::new(0.0, baseline_y));
+            }
+            Some(b)
+        } else {
             let stops = [
                 D2D1_GRADIENT_STOP {
                     position: 0.0,
@@ -1141,41 +1335,53 @@ impl D2dSurface {
                 },
             ];
             // SAFETY: Creating vertical linear gradient brush for area fill.
-            if let Ok(col) = unsafe {
-                self.rt.CreateGradientStopCollection(
-                    &stops,
-                    windows::Win32::Graphics::Direct2D::D2D1_GAMMA_2_2,
-                    D2D1_EXTEND_MODE_CLAMP,
-                )
-            } && let Ok(brush) = unsafe {
-                self.rt.CreateLinearGradientBrush(
-                    &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-                        startPoint: Vector2::new(0.0, min_y),
-                        endPoint: Vector2::new(0.0, baseline_y),
-                    },
-                    None,
-                    &col,
-                )
-            } {
-                let fgeom: ID2D1Geometry = fill_path.cast().unwrap();
-                // SAFETY: `self.rt`, `fgeom`, and `brush` are valid.
-                unsafe { self.rt.FillGeometry(&fgeom, &brush, None) };
+            let created = unsafe {
+                self.rt
+                    .CreateGradientStopCollection(
+                        &stops,
+                        windows::Win32::Graphics::Direct2D::D2D1_GAMMA_2_2,
+                        D2D1_EXTEND_MODE_CLAMP,
+                    )
+                    .ok()
+                    .and_then(|col| {
+                        self.rt
+                            .CreateLinearGradientBrush(
+                                &D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+                                    startPoint: Vector2::new(0.0, min_y),
+                                    endPoint: Vector2::new(0.0, baseline_y),
+                                },
+                                None,
+                                &col,
+                            )
+                            .ok()
+                    })
+            };
+            if let Some(ref b) = created {
+                *self.curve_fill_cache.borrow_mut() = Some(CachedLinearFill {
+                    top_rgba,
+                    bot_rgba,
+                    brush: b.clone(),
+                });
             }
-
-            let sgeom: ID2D1Geometry = stroke_path.cast().unwrap();
-            self.draw_geometry(
-                &sgeom,
-                stroke_color.with_alpha(0.24),
-                stroke_w * 2.8,
-                Some(&factories.round_stroke),
-            );
-            self.draw_geometry(
-                &sgeom,
-                stroke_color,
-                stroke_w,
-                Some(&factories.round_stroke),
-            );
+            created
+        };
+        if let Some(brush) = brush {
+            // SAFETY: `self.rt`, `fgeom`, and `brush` are valid.
+            unsafe { self.rt.FillGeometry(&fgeom, &brush, None) };
         }
+
+        self.draw_geometry(
+            &sgeom,
+            stroke_color.with_alpha(0.24),
+            stroke_w * 2.8,
+            Some(&factories.round_stroke),
+        );
+        self.draw_geometry(
+            &sgeom,
+            stroke_color,
+            stroke_w,
+            Some(&factories.round_stroke),
+        );
     }
 
     #[expect(
@@ -1315,45 +1521,17 @@ impl D2dSurface {
         if c.a <= 0.001 || r <= 0.5 {
             return;
         }
-        let rad = rot_deg.to_radians();
-        let (sin_a, cos_a) = rad.sin_cos();
-        let rot =
-            |x: f32, y: f32| Vector2::new(cx + x * cos_a - y * sin_a, cy + x * sin_a + y * cos_a);
-        let w = r * 0.22;
-        // SAFETY: `factories.d2d` is valid and sink is closed before drawing.
-        let Ok(path) = (unsafe { factories.d2d.CreatePathGeometry() }) else {
-            return;
-        };
-        // SAFETY: `path` is valid.
-        let Ok(sink) = (unsafe { path.Open() }) else {
-            return;
-        };
-        // SAFETY: Building closed 4-point curved sparkle figure.
-        unsafe {
-            sink.BeginFigure(rot(0.0, -r), D2D1_FIGURE_BEGIN_FILLED);
-            sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
-                point1: rot(w, -w),
-                point2: rot(r, 0.0),
-            });
-            sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
-                point1: rot(w, w),
-                point2: rot(0.0, r),
-            });
-            sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
-                point1: rot(-w, w),
-                point2: rot(-r, 0.0),
-            });
-            sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
-                point1: rot(-w, -w),
-                point2: rot(0.0, -r),
-            });
-            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
-            if sink.Close().is_err() {
-                return;
-            }
-        }
-        let geom: ID2D1Geometry = path.cast().unwrap();
+        let mut prev = Matrix3x2::identity();
+        // SAFETY: `self.rt` is valid.
+        unsafe { self.rt.GetTransform(&raw mut prev) };
+        let m = Matrix3x2::scale(r, r)
+            * Matrix3x2::rotation(rot_deg)
+            * Matrix3x2::translation(cx, cy)
+            * prev;
+        self.set_transform(m);
+        let geom: ID2D1Geometry = factories.unit_sparkle_geom.cast().unwrap();
         self.fill_geometry(&geom, c);
+        self.set_transform(prev);
     }
 
     #[expect(clippy::too_many_arguments, reason = "DirectWrite text draw helper")]
@@ -1468,6 +1646,10 @@ impl D2dSurface {
         mask_transform: Matrix3x2,
         mask_brush: Option<&ID2D1LinearGradientBrush>,
     ) {
+        if opacity >= 0.999 && mask_geom.is_none() && mask_brush.is_none() {
+            self.active_layers.push(None);
+            return;
+        }
         let layer = if let Some(l) = self.layer_pool.pop() {
             l
         } else {
@@ -1498,16 +1680,16 @@ impl D2dSurface {
         }
         let _ = std::mem::ManuallyDrop::into_inner(params.geometricMask);
         let _ = std::mem::ManuallyDrop::into_inner(params.opacityBrush);
-        self.active_layers.push(layer);
+        self.active_layers.push(Some(layer));
     }
 
     pub fn pop_layer(&mut self) {
-        // SAFETY: Matches `push_layer`.
-        unsafe { self.rt.PopLayer() };
-        if let Some(layer) = self.active_layers.pop()
-            && self.layer_pool.len() < 4
-        {
-            self.layer_pool.push(layer);
+        if let Some(Some(layer)) = self.active_layers.pop() {
+            // SAFETY: Matches `PushLayer` above.
+            unsafe { self.rt.PopLayer() };
+            if self.layer_pool.len() < 4 {
+                self.layer_pool.push(layer);
+            }
         }
     }
 
@@ -1522,6 +1704,23 @@ impl D2dSurface {
     ) -> Option<ID2D1RadialGradientBrush> {
         if rx <= 0.5 || ry <= 0.5 || (inner.a <= 0.001 && outer.a <= 0.001) {
             return None;
+        }
+        let pack = |c: Color| -> u32 {
+            let r = (c.r.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let g = (c.g.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let b = (c.b.clamp(0.0, 1.0) * 255.0).round() as u32;
+            let a = (c.a.clamp(0.0, 1.0) * 255.0).round() as u32;
+            (a << 24) | (r << 16) | (g << 8) | b
+        };
+        let key = (pack(inner), pack(outer));
+        if let Some(brush) = self.radial_brush_cache.borrow().get(&key).cloned() {
+            // SAFETY: `brush` is a valid radial gradient brush owned by `self.rt`.
+            unsafe {
+                brush.SetCenter(Vector2::new(cx, cy));
+                brush.SetRadiusX(rx);
+                brush.SetRadiusY(ry);
+            }
+            return Some(brush);
         }
         let mid = inner.lerp(outer, 0.55).with_alpha(0.45);
         let stops = [
@@ -1554,7 +1753,7 @@ impl D2dSurface {
             },
         ];
         // SAFETY: `self.rt` is valid.
-        unsafe {
+        let brush = unsafe {
             let col = self
                 .rt
                 .CreateGradientStopCollection(
@@ -1574,8 +1773,14 @@ impl D2dSurface {
                     None,
                     &col,
                 )
-                .ok()
+                .ok()?
+        };
+        let mut cache = self.radial_brush_cache.borrow_mut();
+        if cache.len() >= 32 {
+            cache.clear();
         }
+        cache.insert(key, brush.clone());
+        Some(brush)
     }
 
     pub fn fill_radial_glow(&self, cx: f32, cy: f32, rx: f32, ry: f32, inner: Color, outer: Color) {
@@ -1635,6 +1840,18 @@ impl D2dSurface {
         y1: f32,
         stops: &[(f32, f32)],
     ) -> Option<ID2D1LinearGradientBrush> {
+        let key: Vec<(u32, u32)> = stops
+            .iter()
+            .map(|&(p, a)| (p.to_bits(), a.to_bits()))
+            .collect();
+        if let Some(brush) = self.linear_mask_cache.borrow().get(&key).cloned() {
+            // SAFETY: `brush` is a valid linear gradient brush owned by `self.rt`.
+            unsafe {
+                brush.SetStartPoint(Vector2::new(x0, y0));
+                brush.SetEndPoint(Vector2::new(x1, y1));
+            }
+            return Some(brush);
+        }
         let d2d_stops: Vec<D2D1_GRADIENT_STOP> = stops
             .iter()
             .map(|&(pos, alpha)| D2D1_GRADIENT_STOP {
@@ -1648,7 +1865,7 @@ impl D2dSurface {
             })
             .collect();
         // SAFETY: `self.rt` is valid.
-        unsafe {
+        let brush = unsafe {
             let col = self
                 .rt
                 .CreateGradientStopCollection(
@@ -1666,8 +1883,14 @@ impl D2dSurface {
                     None,
                     &col,
                 )
-                .ok()
+                .ok()?
+        };
+        let mut cache = self.linear_mask_cache.borrow_mut();
+        if cache.len() >= 16 {
+            cache.clear();
         }
+        cache.insert(key, brush.clone());
+        Some(brush)
     }
 
     pub fn bitmap_from_bgra(&self, w: u32, h: u32, bgra_premul: &[u8]) -> Option<ID2D1Bitmap> {
@@ -1898,6 +2121,37 @@ fn build_pointer_geometry(d2d: &ID2D1Factory) -> windows_core::Result<ID2D1PathG
         sink.AddLine(Vector2::new(20.0, 11.0));
         sink.AddLine(Vector2::new(13.0, 13.2));
         sink.AddLine(Vector2::new(10.5, 20.5));
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink.Close()?;
+    }
+    Ok(path)
+}
+
+fn build_unit_sparkle_geometry(d2d: &ID2D1Factory) -> windows_core::Result<ID2D1PathGeometry> {
+    // SAFETY: `d2d` is valid.
+    let path = unsafe { d2d.CreatePathGeometry()? };
+    // SAFETY: `path` is valid and sink is closed before returning.
+    let sink = unsafe { path.Open()? };
+    let w = 0.22_f32;
+    // SAFETY: Building unit-radius 4-point curved sparkle figure.
+    unsafe {
+        sink.BeginFigure(Vector2::new(0.0, -1.0), D2D1_FIGURE_BEGIN_FILLED);
+        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
+            point1: Vector2::new(w, -w),
+            point2: Vector2::new(1.0, 0.0),
+        });
+        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
+            point1: Vector2::new(w, w),
+            point2: Vector2::new(0.0, 1.0),
+        });
+        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
+            point1: Vector2::new(-w, w),
+            point2: Vector2::new(-1.0, 0.0),
+        });
+        sink.AddQuadraticBezier(&D2D1_QUADRATIC_BEZIER_SEGMENT {
+            point1: Vector2::new(-w, -w),
+            point2: Vector2::new(0.0, -1.0),
+        });
         sink.EndFigure(D2D1_FIGURE_END_CLOSED);
         sink.Close()?;
     }
