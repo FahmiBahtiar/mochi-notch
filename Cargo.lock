@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-activities"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-calendar"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64",
  "chrono",
@@ -652,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "mochi-activities",
@@ -663,11 +663,11 @@ dependencies = [
 
 [[package]]
 name = "mochi-clipboard"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "mochi-desktop"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "mochi-ui",
  "mochi-winrt",
@@ -675,18 +675,18 @@ dependencies = [
 
 [[package]]
 name = "mochi-focus"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "mochi-store",
 ]
 
 [[package]]
 name = "mochi-gaze"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "mochi-lyrics"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "regex",
  "serde_json",
@@ -694,40 +694,40 @@ dependencies = [
 
 [[package]]
 name = "mochi-media"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "mochi-notifications"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "mochi-prayer"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "mochi-presence"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
 ]
 
 [[package]]
 name = "mochi-shelf"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "mochi-spring"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "mochi-store"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-tasks"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "regex",
@@ -743,7 +743,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-ui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "mochi-winrt",
@@ -757,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-updates"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde_json",
  "url",
@@ -765,14 +765,14 @@ dependencies = [
 
 [[package]]
 name = "mochi-water"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "mochi-store",
 ]
 
 [[package]]
 name = "mochi-weather"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "serde_json",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "mochi-winrt"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "base64",
  "chrono",
