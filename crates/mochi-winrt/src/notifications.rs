@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, NaiveDateTime, Utc};
 use windows::Foundation::TypedEventHandler;
@@ -185,19 +185,28 @@ pub fn start_notification_watcher(
                 }))
                 .ok();
 
+            let mut last_sync = Instant::now();
             while !stop.load(Ordering::Relaxed) {
+                let mut woke_by_event = false;
                 let (lock, cv) = &*wake_pair;
                 if let Ok(guard) = lock.lock() {
                     let (mut g, _) = cv
-                        .wait_timeout_while(guard, Duration::from_secs(3), |d| {
+                        .wait_timeout_while(guard, Duration::from_secs(5), |d| {
                             !*d && !stop.load(Ordering::Relaxed)
                         })
                         .unwrap_or_else(|e| e.into_inner());
+                    woke_by_event = *g;
                     *g = false;
                 }
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
+                if !woke_by_event
+                    && (known_ids.is_empty() || last_sync.elapsed() < Duration::from_secs(30))
+                {
+                    continue;
+                }
+                last_sync = Instant::now();
                 if let Some(current) = fetch_all_toasts(&listener) {
                     let current_ids: HashSet<u32> = current.iter().map(|n| n.win_id).collect();
                     for item in current.into_iter().rev() {

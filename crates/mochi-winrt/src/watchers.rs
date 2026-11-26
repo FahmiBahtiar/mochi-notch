@@ -36,7 +36,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows_core::{BSTR, PCWSTR, PWSTR};
 
 use crate::audio::file_description;
-use crate::monitors::Monitors;
 use crate::native::to_wide;
 use crate::paths::{Glyphs, HudKind, HudMessage};
 use crate::strings::Language;
@@ -69,8 +68,7 @@ pub fn windows_wants_quiet() -> bool {
 
 pub fn detect_fullscreen(
     own_hwnd: windows::Win32::Foundation::HWND,
-    monitor_device: Option<&str>,
-    lang: Language,
+    disp_rect: (i32, i32, i32, i32),
 ) -> bool {
     // SAFETY: SHQueryUserNotificationState is a safe Win32 call.
     if let Ok(state) = unsafe { SHQueryUserNotificationState() }
@@ -88,12 +86,6 @@ pub fn detect_fullscreen(
         if IsZoomed(fg).as_bool() && (style & WS_CAPTION.0) == WS_CAPTION.0 {
             return false;
         }
-        let mut cls = [0u16; 256];
-        let len = GetClassNameW(fg, &mut cls) as usize;
-        let class_name = String::from_utf16_lossy(&cls[..len]);
-        if matches!(class_name.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd") {
-            return false;
-        }
         let fg_mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
         let own_mon = MonitorFromWindow(own_hwnd, MONITOR_DEFAULTTONEAREST);
         if fg_mon != own_mon {
@@ -103,11 +95,14 @@ pub fn detect_fullscreen(
         if GetWindowRect(fg, &raw mut rect).is_err() {
             return false;
         }
-        let disp = Monitors::resolve(monitor_device, lang);
-        rect.left <= disp.x
-            && rect.top <= disp.y
-            && rect.right >= disp.x + disp.width
-            && rect.bottom >= disp.y + disp.height
+        let (dx, dy, dw, dh) = disp_rect;
+        if rect.left > dx || rect.top > dy || rect.right < dx + dw || rect.bottom < dy + dh {
+            return false;
+        }
+        let mut cls = [0u16; 256];
+        let len = GetClassNameW(fg, &mut cls) as usize;
+        let class_name = String::from_utf16_lossy(&cls[..len]);
+        !matches!(class_name.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd")
     }
 }
 
@@ -515,24 +510,29 @@ pub fn start_camera_watcher(
                 }
                 return;
             };
+            let mut armed = false;
             while !stop.load(Ordering::Relaxed) {
-                // SAFETY: Arming async registry change notification.
-                let err = unsafe {
-                    RegNotifyChangeKeyValue(
-                        hkey,
-                        true,
-                        REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
-                        Some(ev),
-                        true,
-                    )
-                };
-                if err.is_err() {
-                    break;
+                if !armed {
+                    // SAFETY: Arming async registry change notification once until signaled.
+                    let err = unsafe {
+                        RegNotifyChangeKeyValue(
+                            hkey,
+                            true,
+                            REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
+                            Some(ev),
+                            true,
+                        )
+                    };
+                    if err.is_err() {
+                        break;
+                    }
+                    armed = true;
                 }
                 let handles = [ev];
-                // SAFETY: Waiting up to 500ms so `stop` is checked promptly.
-                let wait = unsafe { WaitForMultipleObjects(&handles, false, 500) };
+                // SAFETY: Waiting up to 2000ms so `stop` is checked without re-arming registry notifications.
+                let wait = unsafe { WaitForMultipleObjects(&handles, false, 2000) };
                 if wait == WAIT_OBJECT_0 {
+                    armed = false;
                     std::thread::sleep(Duration::from_millis(200));
                     on_change(read_camera_apps());
                 }

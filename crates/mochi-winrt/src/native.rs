@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT};
+use windows::Win32::Foundation::{CloseHandle, FILETIME, HWND, LPARAM, POINT};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
     DeleteObject, GetDIBits, GetObjectW,
@@ -14,7 +14,7 @@ use windows::Win32::System::Registry::{
 };
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32,
+    GetCurrentProcess, GetCurrentProcessId, GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, SetProcessWorkingSetSize,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -25,11 +25,11 @@ use windows::Win32::UI::Shell::{
     SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyIcon, EnumWindows, GW_OWNER, GWL_EXSTYLE, GetIconInfo, GetWindow, GetWindowLongW,
-    GetWindowThreadProcessId, HWND_TOPMOST, ICONINFO, IsIconic, IsWindow, IsWindowVisible,
-    SW_RESTORE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
-    SetForegroundWindow, SetWindowDisplayAffinity, SetWindowPos, ShowWindow,
-    WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_TOOLWINDOW,
+    DestroyIcon, EnumWindows, GW_HWNDPREV, GW_OWNER, GWL_EXSTYLE, GetIconInfo, GetWindow,
+    GetWindowLongW, GetWindowThreadProcessId, HWND_TOPMOST, ICONINFO, IsIconic, IsWindow,
+    IsWindowVisible, SW_RESTORE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    SWP_NOZORDER, SetForegroundWindow, SetWindowDisplayAffinity, SetWindowPos, ShowWindow,
+    WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
 };
 use windows_core::{BOOL, PCWSTR};
 
@@ -65,6 +65,13 @@ pub fn get_idle_ms() -> u64 {
 pub fn keep_topmost(hwnd: HWND) {
     // SAFETY: `hwnd` is a valid window handle owned by this process.
     unsafe {
+        let is_topmost = (GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST.0 as i32) != 0;
+        let has_topmost_above = GetWindow(hwnd, GW_HWNDPREV).is_ok_and(|prev| {
+            !prev.is_invalid() && (GetWindowLongW(prev, GWL_EXSTYLE) & WS_EX_TOPMOST.0 as i32) != 0
+        });
+        if is_topmost && !has_topmost_above {
+            return;
+        }
         let _ = SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
@@ -631,4 +638,34 @@ pub fn trim_working_set() {
     unsafe {
         let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
     }
+}
+
+/// Returns cumulative `(kernel_us, user_us)` CPU time consumed by the current process.
+pub fn process_cpu_time_us() -> Option<(u64, u64)> {
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // SAFETY: `GetCurrentProcess()` is a valid pseudo-handle and all FILETIME pointers are stack locals.
+    unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &raw mut creation,
+            &raw mut exit,
+            &raw mut kernel,
+            &raw mut user,
+        )
+        .ok()?;
+    }
+    let to_us = |ft: FILETIME| -> u64 {
+        let ticks = (u64::from(ft.dwHighDateTime) << 32) | u64::from(ft.dwLowDateTime);
+        ticks / 10
+    };
+    Some((to_us(kernel), to_us(user)))
+}
+
+pub fn logical_cpu_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
 }

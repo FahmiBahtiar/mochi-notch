@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::{CloseHandle, PROPERTYKEY};
@@ -612,6 +612,24 @@ pub fn process_display_name(pid: u32) -> String {
 }
 
 pub fn file_description(path: &str) -> Option<String> {
+    static DESC_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    let cache = DESC_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = cache.lock()
+        && let Some(cached) = guard.get(path)
+    {
+        return cached.clone();
+    }
+    let resolved = query_file_description(path);
+    if let Ok(mut guard) = cache.lock() {
+        if guard.len() >= 128 {
+            guard.clear();
+        }
+        guard.insert(path.to_string(), resolved.clone());
+    }
+    resolved
+}
+
+fn query_file_description(path: &str) -> Option<String> {
     let wide = to_wide(path);
     let mut dummy = 0u32;
     // SAFETY: `wide` is NUL-terminated UTF-16.
